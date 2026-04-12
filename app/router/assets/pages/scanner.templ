@@ -68,9 +68,13 @@ templ ScannerButton(signedIn bool) {
 		dProps := dialog.TriggerProps{
 			ID: "scan-btn",
 		}
-		btnProps := button.Props{}
+		btnProps := button.Props{ID: "scan-btn"}
 		if signedIn {
 			btnProps.Variant = button.VariantSecondary
+		} else {
+			btnProps.Disabled = true
+		}
+		if signedIn {
 			dProps.For = "modal-zone-dialog"
 			dProps.Attributes = templ.Attributes{
 				"hx-target": "#" + values.IDModalZoneContent,
@@ -79,7 +83,13 @@ templ ScannerButton(signedIn bool) {
 			}
 		}
 	}}
-	@dialog.Trigger(dProps) {
+	if signedIn {
+		@dialog.Trigger(dProps) {
+			@button.Button(btnProps) {
+				@icon.ScanSearch(icon.Props{Class: "size-8 drop-shadow-sm"})
+			}
+		}
+	} else {
 		@button.Button(btnProps) {
 			@icon.ScanSearch(icon.Props{Class: "size-8 drop-shadow-sm"})
 		}
@@ -100,6 +110,15 @@ templ ScannerScript() {
     const noCameraHtml = '<p class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">Camera access is not supported on this browser. Please use a modern browser (Chrome, Safari, Firefox).</p>';
     const loadingMsg = '<p class="text-sm text-muted-foreground">Scanning vinyl cover...</p>';
     let cameraEnabled = true;
+
+    function syncScanButtonState() {
+      const scanBtn = document.getElementById('scan-btn');
+      if (!scanBtn) return;
+
+      const canScan = cameraEnabled && !!video.srcObject;
+      scanBtn.disabled = !canScan;
+      scanBtn.classList.toggle('hidden', !canScan);
+    }
 
     // Camera is now fixed fullscreen via CSS, no dynamic sizing needed
 
@@ -149,9 +168,8 @@ templ ScannerScript() {
         
         // Show video, scan button, and camera toggle
         videoContainer.classList.remove('hidden');
-        const scanBtn = document.getElementById('scan-btn');
-        if (scanBtn) scanBtn.classList.remove('hidden');
         cameraToggleBtn.classList.remove('hidden');
+        syncScanButtonState();
         
         console.log('Camera enabled successfully');
         
@@ -178,11 +196,19 @@ templ ScannerScript() {
         }
 
         if (modalZoneContent) modalZoneContent.innerHTML = '<p class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">' + errorMsg + '</p>';
+        syncScanButtonState();
       }
     }
 
     // Start camera automatically on page load
     window.addEventListener('load', enableCamera);
+    document.body.addEventListener('user-signed-in', () => requestAnimationFrame(syncScanButtonState));
+    document.body.addEventListener('user-signed-out', () => requestAnimationFrame(syncScanButtonState));
+    document.body.addEventListener('htmx:afterSwap', (event) => {
+      if (event.target && event.target.id === 'scan-btn-shell') {
+        requestAnimationFrame(syncScanButtonState);
+      }
+    });
 
     // Capture frame from video, crop to alignment box, return JPEG blob
     function captureFrame() {
@@ -224,7 +250,6 @@ templ ScannerScript() {
 
     // Toggle camera on/off
     function toggleCamera() {
-      const scanBtn = document.getElementById('scan-btn');
       if (cameraEnabled) {
         // Turn off: stop tracks, hide video
         if (video.srcObject) {
@@ -232,12 +257,12 @@ templ ScannerScript() {
           video.srcObject = null;
         }
         videoContainer.classList.add('hidden');
-        if (scanBtn) scanBtn.classList.add('hidden');
         cameraIconOn.classList.add('hidden');
         cameraIconOff.classList.remove('hidden');
         cameraToggleBtn.classList.remove('border-primary/50', 'bg-background/85', 'text-primary');
         cameraToggleBtn.classList.add('border-secondary/50', 'bg-secondary/85', 'text-secondary-foreground');
         cameraEnabled = false;
+        syncScanButtonState();
       } else {
         // Turn on: restart camera
         cameraIconOn.classList.remove('hidden');
@@ -245,6 +270,7 @@ templ ScannerScript() {
         cameraToggleBtn.classList.add('border-primary/50', 'bg-background/85', 'text-primary');
         cameraToggleBtn.classList.remove('border-secondary/50', 'bg-secondary/85', 'text-secondary-foreground');
         cameraEnabled = true;
+        syncScanButtonState();
         enableCamera();
       }
     }
@@ -253,6 +279,7 @@ templ ScannerScript() {
     async function handleScanClick(event) {
       const scanBtn = document.getElementById('scan-btn');
       if (!scanBtn) return;
+      if (!cameraEnabled || !video.srcObject) return;
       
       // Let dialog trigger handle opening the modal naturally
       // We just capture and submit the frame
@@ -278,13 +305,19 @@ templ ScannerScript() {
         }
         
 				const html = await response.text();
+				const hxTriggerHeader = response.headers.get('HX-Trigger') || '';
+
 				if (modalZoneContent) {
 				  modalZoneContent.innerHTML = html;
 				  if (window.htmx) {
 				    window.htmx.process(modalZoneContent);
 				  }
 				}
-				document.body.dispatchEvent(new CustomEvent('vinyl-registered'));
+
+				const triggers = hxTriggerHeader.split(',').map(t => t.trim());
+				if (triggers.includes('vinyl-registered')) {
+					document.body.dispatchEvent(new CustomEvent('vinyl-registered'));
+				}
 			} catch (err) {
 				console.error("Scan error:", err);
 				if (modalZoneContent) modalZoneContent.innerHTML = "<p class=\"rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive\">Error: " + err.message + "</p>";
