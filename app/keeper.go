@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -60,7 +61,8 @@ func NewKeeper() (Keeper, error) {
 func (k *keeper) AllVinyl() []vinyl.VinylUnique {
 	v, err := k.queries.GetAllVinyls(k.ctx)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("[Keeper] failed to fetch all vinyl: %v", err)
+		return []vinyl.VinylUnique{}
 	}
 
 	return v
@@ -69,7 +71,8 @@ func (k *keeper) AllVinyl() []vinyl.VinylUnique {
 func (k *keeper) MyVinyl(userID int64) []vinyl.VinylWithPlayData {
 	userPlays, err := k.queries.GetUserVinylPlays(k.ctx, userID)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("[Keeper] failed to fetch user vinyl plays for user %d: %v", userID, err)
+		return []vinyl.VinylWithPlayData{}
 	}
 
 	k.mu.RLock()
@@ -79,7 +82,8 @@ func (k *keeper) MyVinyl(userID int64) []vinyl.VinylWithPlayData {
 	for _, play := range userPlays {
 		vinylUnique, ok := k.vinylLookup[play.VinylID]
 		if !ok {
-			log.Fatalf("data consistency error: vinyl_id %d found in user_vinyl_plays but not in vinylLookup", play.VinylID)
+			log.Printf("[Keeper] data consistency warning: vinyl_id %d found in user_vinyl_plays but not in vinylLookup", play.VinylID)
+			continue
 		}
 		result = append(result, vinyl.VinylWithPlayData{
 			VinylUnique: vinylUnique,
@@ -473,6 +477,23 @@ func (k *keeper) initKeeper(ctx context.Context) error {
 
 const dbFileName = "vinylkeeper.db"
 
+func sqlitePoolSetting(envKey string) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(envKey))
+	if raw == "" {
+		return 0, fmt.Errorf("%s is required", envKey)
+	}
+
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer: %w", envKey, err)
+	}
+	if value < 1 {
+		return 0, fmt.Errorf("%s must be >= 1 (got %d)", envKey, value)
+	}
+
+	return value, nil
+}
+
 func databasePath() (string, error) {
 	if path := os.Getenv("DB_PATH"); path != "" {
 		return path, nil
@@ -487,6 +508,19 @@ func (k *keeper) initializeQueries(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	maxOpenSQLite, err := sqlitePoolSetting("MAX_OPEN_SQLITE")
+	if err != nil {
+		return err
+	}
+	maxIdleSQLite, err := sqlitePoolSetting("MAX_IDLE_SQLITE")
+	if err != nil {
+		return err
+	}
+	if maxIdleSQLite > maxOpenSQLite {
+		return fmt.Errorf("MAX_IDLE_SQLITE (%d) cannot be greater than MAX_OPEN_SQLITE (%d)", maxIdleSQLite, maxOpenSQLite)
+	}
+
 	dir := filepath.Dir(dbPath)
 	if dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -496,16 +530,18 @@ func (k *keeper) initializeQueries(ctx context.Context) error {
 
 	_, err = os.Stat(dbPath)
 	isNew := errors.Is(err, fs.ErrNotExist)
-	db, err := sql.Open("sqlite", dbPath)
+	openPath := dbPath + "?_pragma=foreign_keys(1)"
+	if strings.Contains(dbPath, "?") {
+		openPath = dbPath + "&_pragma=foreign_keys(1)"
+	}
+	db, err := sql.Open("sqlite", openPath)
 	if err != nil {
 		return fmt.Errorf("open sqlite %q: %w", dbPath, err)
 	}
-	// SQLite disables foreign key enforcement by default on every new connection.
-	// This must be re-applied each time the DB is opened, not just at schema creation.
-	if _, err = db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
-		db.Close()
-		return fmt.Errorf("enable foreign keys: %w", err)
-	}
+	db.SetMaxOpenConns(maxOpenSQLite)
+	db.SetMaxIdleConns(maxIdleSQLite)
+	// Foreign key enforcement is configured via DSN pragma so it applies to each
+	// new connection in the database/sql pool.
 	if isNew {
 		if _, err = db.ExecContext(ctx, schemaSQL); err != nil {
 			db.Close()
