@@ -114,7 +114,13 @@ templ SignInButtonZone(userName string) {
 }
 
 templ SignInPanel(signedInUserName string, oob bool) {
-	<div if oob { id={ values.IDModalZoneContent } hx-swap-oob="innerHTML" } class="space-y-4">
+	<div
+		if oob {
+			id={ values.IDModalZoneContent }
+			hx-swap-oob="innerHTML"
+		}
+		class="space-y-4"
+	>
 		<div class="flex items-center justify-between">
 			<div>
 				<h3 class="text-lg font-semibold">Sign In</h3>
@@ -123,7 +129,7 @@ templ SignInPanel(signedInUserName string, oob bool) {
 			if signedInUserName != "" {
 				@button.Button(button.Props{
 					Variant: button.VariantDestructive,
-					Size: button.SizeSm,
+					Size:    button.SizeSm,
 					Attributes: templ.Attributes{
 						"hx-post":   values.EndpointSignIn + values.EndpointSignOut,
 						"hx-target": "#" + values.IDModalZoneContent,
@@ -177,8 +183,8 @@ templ SignInUserRow(user vinyl.User, signedInUserID int64) {
 		<div class="flex items-center gap-2">
 			if user.UserID == signedInUserID {
 				@button.Button(button.Props{
-					Variant: button.VariantSecondary,
-					Size: button.SizeSm,
+					Variant:  button.VariantSecondary,
+					Size:     button.SizeSm,
 					Disabled: true,
 				}) {
 					@icon.User(icon.Props{Class: "size-4"})
@@ -187,7 +193,7 @@ templ SignInUserRow(user vinyl.User, signedInUserID int64) {
 			} else {
 				@button.Button(button.Props{
 					Variant: button.VariantOutline,
-					Size: button.SizeSm,
+					Size:    button.SizeSm,
 					Attributes: templ.Attributes{
 						"hx-post":   values.EndpointSignIn + values.EndpointSubmit,
 						"hx-vals":   fmt.Sprintf(`{"%s":%d}`, values.QueryUserID, user.UserID),
@@ -201,7 +207,7 @@ templ SignInUserRow(user vinyl.User, signedInUserID int64) {
 			}
 			@button.Button(button.Props{
 				Variant: button.VariantDestructive,
-				Size: button.SizeSm,
+				Size:    button.SizeSm,
 				Attributes: templ.Attributes{
 					"hx-post":    values.EndpointSignIn + values.EndpointUserDelete,
 					"hx-vals":    fmt.Sprintf(`{"%s":%d}`, values.QueryUserID, user.UserID),
@@ -230,32 +236,61 @@ templ VinylRegisterForm() {
 			hx-indicator="#loading"
 			class="flex flex-col gap-4"
 		>
-			<div class="flex flex-col gap-2">
-				@label.Label(label.Props{
-					For: "artist" + id,
-				}) {
-					Artist
+			@tabs.Tabs() {
+				@tabs.List() {
+					@tabs.Trigger(tabs.TriggerProps{Value: "search", IsActive: true}) {
+						Search
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "master"}) {
+						Master ID
+					}
 				}
-				@input.Input(input.Props{
-					ID:          "artist" + id,
-					Name:        values.QueryArtist,
-					Placeholder: "e.g., Abbey Road",
-					Required:    true,
-				})
-			</div>
-			<div class="flex flex-col gap-2">
-				@label.Label(label.Props{
-					For: "album" + id,
-				}) {
-					Album
+				@tabs.Content(tabs.ContentProps{Value: "search", IsActive: true}) {
+					<div class="flex flex-col gap-4 pt-4">
+						<div class="flex flex-col gap-2">
+							@label.Label(label.Props{
+								For: "artist" + id,
+							}) {
+								Artist
+							}
+							@input.Input(input.Props{
+								ID:          "artist" + id,
+								Name:        values.QueryArtist,
+								Placeholder: "e.g., The Beatles",
+							})
+						</div>
+						<div class="flex flex-col gap-2">
+							@label.Label(label.Props{
+								For: "album" + id,
+							}) {
+								Album
+							}
+							@input.Input(input.Props{
+								ID:          "album" + id,
+								Name:        values.QueryAlbum,
+								Placeholder: "e.g., Abbey Road",
+							})
+						</div>
+					</div>
 				}
-				@input.Input(input.Props{
-					ID:          "album" + id,
-					Name:        values.QueryAlbum,
-					Placeholder: "e.g., The Beatles",
-					Required:    true,
-				})
-			</div>
+				@tabs.Content(tabs.ContentProps{Value: "master"}) {
+					<div class="flex flex-col gap-4 pt-4">
+						<div class="flex flex-col gap-2">
+							@label.Label(label.Props{
+								For: "master_id" + id,
+							}) {
+								Discogs Master ID
+							}
+							@input.Input(input.Props{
+								ID:          "master_id" + id,
+								Name:        values.QueryMasterID,
+								Placeholder: "e.g., 123456",
+								Type:        "number",
+							})
+						</div>
+					</div>
+				}
+			}
 			@button.Button(button.Props{
 				Type: "submit",
 			}) {

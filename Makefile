@@ -58,6 +58,8 @@ EMBED_MODEL_FAMILY ?=
 EMBED_DIM ?=
 EMBED_IMAGE_SIZE ?=
 DB_PATH ?= /data/vinylkeeper.db
+MAX_OPEN_SQLITE ?=
+MAX_IDLE_SQLITE ?=
 APP_PORT ?= 8080
 
 COMPOSE_LOCAL = podman-compose.local.yml
@@ -220,6 +222,8 @@ dev: dev-down templ tailwind certs
 	EMBED_DIM=$(EMBED_DIM) \
 	EMBED_IMAGE_SIZE=$(EMBED_IMAGE_SIZE) \
 	DB_PATH=$(DB_PATH) \
+	MAX_OPEN_SQLITE=$(MAX_OPEN_SQLITE) \
+	MAX_IDLE_SQLITE=$(MAX_IDLE_SQLITE) \
 	./scripts/run-local.sh
 
 # Backward-compatible alias.

@@ -235,6 +235,13 @@ func requestDiscogs(albumTitle, artist string) (discogsResp, error) {
 		return discogsResp{}, fmt.Errorf("no master_id found in search results")
 	}
 
+	return requestMasterDiscogs(masterID)
+}
+
+func requestMasterDiscogs(masterID int) (discogsResp, error) {
+	httpClient := http.Client{
+		Timeout: time.Second * 10,
+	}
 	// Step 2: Get master release details
 	masterURL := fmt.Sprintf("https://api.discogs.com/masters/%d", masterID)
 	log.Printf("Discogs master: %s", masterURL)
@@ -314,12 +321,24 @@ func requestDiscogs(albumTitle, artist string) (discogsResp, error) {
 	}, nil
 }
 
-func RegisterUniqueVinylQueryParams(albumTitle, artist string) (vinyl.RegisterVinylParams, error) {
+func RegisterUniqueVinylMasterID(masterID int) (vinyl.RegisterVinylParams, error) {
+	resp, err := requestMasterDiscogs(masterID)
+	if err != nil {
+		return vinyl.RegisterVinylParams{}, err
+	}
+	return registerParams(resp)
+}
+
+func RegisterUniqueVinylAlbumArtist(albumTitle, artist string) (vinyl.RegisterVinylParams, error) {
 	// get raw image data []byte and string image extension .png, .jpg etc
 	resp, err := requestDiscogs(albumTitle, artist)
 	if err != nil {
 		return vinyl.RegisterVinylParams{}, err
 	}
+	return registerParams(resp)
+}
+
+func registerParams(resp discogsResp) (vinyl.RegisterVinylParams, error) {
 	emb, err := RequestEmbedding(resp.rawCoverData)
 	if err != nil {
 		return vinyl.RegisterVinylParams{}, fmt.Errorf("failed to generate embedding: %w", err)
@@ -347,7 +366,6 @@ func RegisterUniqueVinylQueryParams(albumTitle, artist string) (vinyl.RegisterVi
 		CoverEmbedding:    EmbeddingToBlob(emb),
 		ImageExtension:    resp.extension,
 	}, nil
-
 }
 
 func (k *keeper) KeepRecord(vinylID, userID int64) error {

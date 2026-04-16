@@ -330,7 +330,8 @@ func embeddingFromBlob(b []byte) (Embedding, error) {
 }
 
 type RegisterHandlerParams struct {
-	RegisterVinyl func(artist, album string) (vinyl.VinylUnique, error)
+	RegisterVinyl   func(artist, album string) (vinyl.VinylUnique, error)
+	RegisterVinylID func(masterID int) (vinyl.VinylUnique, error)
 }
 
 type RegisterResult struct {
@@ -343,19 +344,44 @@ func RegisterSubmitHandler(params RegisterHandlerParams) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", values.ContentTypeHTML)
 
-		artist := r.URL.Query().Get(values.QueryArtist)
-		album := r.URL.Query().Get(values.QueryAlbum)
+		var (
+			artist         = r.FormValue(values.QueryArtist)
+			album          = r.FormValue(values.QueryAlbum)
+			masterID       = r.FormValue(values.QueryMasterID)
+			nameSearch     = artist != "" && album != ""
+			masterIDSearch = masterID != ""
+			vinylUnique    vinyl.VinylUnique
+			err            error
+		)
 
-		if artist == "" || album == "" {
+		if nameSearch && masterIDSearch {
 			w.WriteHeader(http.StatusBadRequest)
-			parts.ErrorMessage("Missing artist or album name").Render(r.Context(), w)
+			parts.ErrorMessage("need to have either artist/album OR master ID, not both").Render(r.Context(), w)
 			return
-		}
+		} else if nameSearch {
+			vinylUnique, err = params.RegisterVinyl(artist, album)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				parts.ErrorMessage(err.Error()).Render(r.Context(), w)
+				return
+			}
 
-		vinylUnique, err := params.RegisterVinyl(artist, album)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			parts.ErrorMessage(err.Error()).Render(r.Context(), w)
+		} else if masterIDSearch {
+			id, err := strconv.Atoi(masterID)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				parts.ErrorMessage(err.Error()).Render(r.Context(), w)
+			}
+
+			vinylUnique, err = params.RegisterVinylID(id)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				parts.ErrorMessage(err.Error()).Render(r.Context(), w)
+				return
+			}
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+			parts.ErrorMessage("must provide album/artist or master ID").Render(r.Context(), w)
 			return
 		}
 

@@ -48,8 +48,8 @@ func IsUserSignedIn(r *http.Request) bool {
 	return GetUserID(r) >= 0
 }
 
-// SignInUsersHandler returns the list of users for the sign-in modal
-func SignInUsersHandler(k UserLister) http.HandlerFunc {
+// SignInUsersListHandler returns the list of users for the sign-in modal
+func SignInUsersListHandler(k UserLister) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", values.ContentTypeHTML)
 

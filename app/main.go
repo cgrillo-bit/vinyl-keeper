@@ -171,7 +171,7 @@ func main() {
 
 	r.Route(http.MethodGet,
 		values.EndpointSignIn+values.EndpointUsers,
-		router.SignInUsersHandler(keeper))
+		router.SignInUsersListHandler(keeper))
 
 	r.Route(http.MethodPost,
 		values.EndpointSignIn+values.EndpointSubmit,
@@ -207,7 +207,14 @@ func main() {
 		values.EndpointRegister+values.EndpointSubmit,
 		router.RegisterSubmitHandler(router.RegisterHandlerParams{
 			RegisterVinyl: func(artist, album string) (vinyl.VinylUnique, error) {
-				params, err := RegisterUniqueVinylQueryParams(album, artist)
+				params, err := RegisterUniqueVinylAlbumArtist(album, artist)
+				if err != nil {
+					return vinyl.VinylUnique{}, err
+				}
+				return keeper.RegisterVinylUnique(params)
+			},
+			RegisterVinylID: func(masterID int) (vinyl.VinylUnique, error) {
+				params, err := RegisterUniqueVinylMasterID(masterID)
 				if err != nil {
 					return vinyl.VinylUnique{}, err
 				}

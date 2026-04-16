@@ -7,6 +7,7 @@ const (
 
 // Query constants for URL query parameters
 const (
+	QueryMasterID   = "master_id"
 	QueryArtist     = "artist"
 	QueryAlbum      = "album"
 	QueryGenre      = "genre"
