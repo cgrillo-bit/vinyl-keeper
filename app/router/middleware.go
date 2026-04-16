@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	"github.com/ninesl/vinyl-keeper/app/auth"
@@ -43,6 +44,26 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 
 		duration := time.Since(start)
 		log.Printf("[%s] %s %d %s", r.Method, r.URL.Path, wrapped.statusCode, duration)
+	})
+}
+
+func RecoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf(
+					"[Panic] method=%s path=%s remote=%s panic=%v\n%s",
+					r.Method,
+					r.URL.Path,
+					r.RemoteAddr,
+					recovered,
+					debug.Stack(),
+				)
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+			}
+		}()
+
+		next.ServeHTTP(w, r)
 	})
 }
 

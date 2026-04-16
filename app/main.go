@@ -101,6 +101,8 @@ func routeAssets(r *router.Router) {
 }
 
 func TestHandlerInit(r *router.Router) {
+	log.Println("[Init] Registering RecoveryMiddleware")
+	r.Use(router.RecoveryMiddleware)
 	log.Println("[Init] Registering LoggingMiddleware")
 	r.Use(router.LoggingMiddleware)
 	log.Println("[Init] Registering AuthMiddleware")

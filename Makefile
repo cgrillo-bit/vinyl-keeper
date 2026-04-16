@@ -30,6 +30,7 @@ VPS_MODELS_DIR ?= $(VPS_PROD_DIR)/models
 VPS_APP_TAR_PATH ?= $(VPS_IMAGES_DIR)/app.tar
 VPS_COMPOSE_PATH ?= $(VPS_PROD_DIR)/$(COMPOSE_PROD)
 VPS_ENV_PATH ?= $(VPS_PROD_DIR)/.env
+VPS_ENV_OVERLAY_PATH ?= $(VPS_PROD_DIR)/$(notdir $(DEPLOY_ENV_SOURCE))
 NGINX_LOCAL_CONF ?= nginx/vinylkeeper.conf
 VPS_NGINX_DIR ?= $(VPS_HOME_PATH)/prod/nginx
 VPS_NGINX_PATH ?= $(VPS_NGINX_DIR)/vinylkeeper.conf
@@ -67,6 +68,7 @@ DEPLOY_APP_TAR = $(DEPLOY_DIR)/app.tar
 DEPLOY_COMPOSE = $(DEPLOY_DIR)/$(COMPOSE_PROD)
 DEPLOY_ENV = $(DEPLOY_DIR)/.env
 DEPLOY_ENV_SOURCE ?= .env.prod
+DEPLOY_ENV_OVERLAY = $(DEPLOY_DIR)/$(notdir $(DEPLOY_ENV_SOURCE))
 
 help:
 	@echo "Public commands:"
@@ -234,7 +236,7 @@ dev-down:
 
 # Save built images for transport
 clean-deploy:
-	rm -f $(DEPLOY_APP_TAR) $(DEPLOY_COMPOSE) $(DEPLOY_ENV)
+	rm -f $(DEPLOY_APP_TAR) $(DEPLOY_COMPOSE) $(DEPLOY_ENV) $(DEPLOY_ENV_OVERLAY)
 
 save: templ tailwind certs build-bin clean-deploy
 	mkdir -p $(DEPLOY_DIR)
@@ -242,7 +244,7 @@ save: templ tailwind certs build-bin clean-deploy
 	podman save -o $(DEPLOY_APP_TAR) $(IMAGE_APP)
 	cp $(COMPOSE_PROD) $(DEPLOY_COMPOSE)
 	cp .env $(DEPLOY_ENV)
-	cat $(DEPLOY_ENV_SOURCE) >> $(DEPLOY_ENV)
+	cp $(DEPLOY_ENV_SOURCE) $(DEPLOY_ENV_OVERLAY)
 
 # Ship artifacts and run prod stack on VPS
 deploy-up: require-vps-env save sync-models sync-service-build
@@ -251,6 +253,7 @@ deploy-up: require-vps-env save sync-models sync-service-build
 	rsync -avz $(DEPLOY_APP_TAR) $(SSH_TARGET):$(VPS_APP_TAR_PATH)
 	rsync -avz $(DEPLOY_COMPOSE) $(SSH_TARGET):$(VPS_COMPOSE_PATH)
 	rsync -avz $(DEPLOY_ENV) $(SSH_TARGET):$(VPS_ENV_PATH)
+	rsync -avz $(DEPLOY_ENV_OVERLAY) $(SSH_TARGET):$(VPS_ENV_OVERLAY_PATH)
 	ssh $(SSH_TARGET) 'cd $(VPS_PROD_DIR) && podman load -i $(VPS_APP_TAR_PATH) && podman build -t $(IMAGE_SERVICE) image_service_build && podman-compose -f $(COMPOSE_PROD) up -d --force-recreate --remove-orphans'
 
 # Copy model files to production models directory

@@ -4,15 +4,10 @@ services:
   app:
     image: vinyl-keeper:app
     network_mode: host
+    env_file:
+      - .env
+      - .env.dev
     environment:
-      DB_PATH: ${DB_PATH?DB_PATH is required}
-      IMAGE_SERVICE_HOST: 127.0.0.1
-      IMAGE_SERVICE_PORT: "8081"
-      IMAGE_SERVICE_ENDPOINT: /embed
-      IMAGE_SERVICE_HEALTH_ENDPOINT: ${IMAGE_SERVICE_HEALTH_ENDPOINT:-/health}
-      IMAGE_SERVICE_WAIT_RETRIES: "${IMAGE_SERVICE_WAIT_RETRIES:-60}"
-      IMAGE_SERVICE_WAIT_SECONDS: "${IMAGE_SERVICE_WAIT_SECONDS:-1}"
-      ENABLE_TLS: "true"
       TLS_CERT: /app/certs/dev.crt
       TLS_KEY: /app/certs/dev.key
     volumes:
@@ -26,11 +21,9 @@ services:
     image: vinyl-keeper:image-service
     network_mode: host
     command: ["uv", "run", "uvicorn", "image_service:app", "--host", "0.0.0.0", "--port", "8081"]
-    environment:
-      EMBED_MODEL_PATH: ${EMBED_MODEL_PATH?EMBED_MODEL_PATH is required}
-      EMBED_MODEL_FAMILY: ${EMBED_MODEL_FAMILY?EMBED_MODEL_FAMILY is required}
-      EMBED_DIM: "${EMBED_DIM?EMBED_DIM is required}"
-      EMBED_IMAGE_SIZE: "${EMBED_IMAGE_SIZE?EMBED_IMAGE_SIZE is required}"
+    env_file:
+      - .env
+      - .env.dev
     volumes:
       - ./models:/models:ro
     restart: unless-stopped
