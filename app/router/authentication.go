@@ -1,6 +1,7 @@
 package router
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -11,32 +12,33 @@ import (
 	"github.com/ninesl/vinyl-keeper/app/vinyl"
 )
 
-// determineUser extracts the authenticated user from the request
-// Returns nil if no valid session exists
-func determineUser(r *http.Request) *vinyl.User {
-	sessionUser, err := auth.GetSessionUser(r)
-	if err != nil || sessionUser == nil {
-		return nil
-	}
+// ErrAuthMiddlewareNotRun indicates the auth middleware did not execute
+var ErrAuthMiddlewareNotRun = errors.New("auth middleware did not run")
 
-	return &vinyl.User{
-		UserID:   sessionUser.UserID,
-		UserName: sessionUser.Username,
+// determineUser extracts the authenticated user from the request context
+// Returns nil if not authenticated (anonymous user)
+// Returns error if auth middleware didn't run (programming error - should be 500)
+func determineUser(r *http.Request) (*vinyl.User, error) {
+	user, ok := GetUserFromContext(r.Context())
+	if !ok {
+		// Middleware didn't run - this is a programming error
+		return nil, ErrAuthMiddlewareNotRun
 	}
+	return user, nil
 }
 
-// GetUserID extracts the user ID from the session, returns -1 if not authenticated
+// GetUserID extracts the user ID from the context, returns -1 if not authenticated
 func GetUserID(r *http.Request) int64 {
-	user := determineUser(r)
+	user, _ := determineUser(r)
 	if user == nil {
 		return -1
 	}
 	return user.UserID
 }
 
-// GetUserName extracts the username from the session, returns empty string if not authenticated
+// GetUserName extracts the username from the context, returns empty string if not authenticated
 func GetUserName(r *http.Request) string {
-	user := determineUser(r)
+	user, _ := determineUser(r)
 	if user == nil {
 		return ""
 	}
@@ -153,7 +155,7 @@ func SignInDeleteUserHandler(k UserDeleterLister) http.HandlerFunc {
 
 		if deletingSignedInUser {
 			auth.ClearSessionCookie(w)
-			w.Header().Set(values.HeaderHXTrigger, values.EventUserSignedOut)
+			w.Header().Set(values.HeaderHXTriggerAfterSettle, values.EventUserSignedOut)
 			ui.SignInPanel("", true).Render(r.Context(), w)
 			return
 		}
@@ -207,8 +209,8 @@ func SignInSubmitHandler(k UserGetter) http.HandlerFunc {
 			return
 		}
 
-		// Trigger HTMX event to update UI
-		w.Header().Set(values.HeaderHXTrigger, values.EventUserSignedIn)
+		// Trigger HTMX event AFTER settle so cookie is fully processed
+		w.Header().Set(values.HeaderHXTriggerAfterSettle, values.EventUserSignedIn)
 		w.WriteHeader(http.StatusOK)
 	}
 }
@@ -221,8 +223,8 @@ func SignOutHandler() http.HandlerFunc {
 		// Clear the session cookie
 		auth.ClearSessionCookie(w)
 
-		// Trigger HTMX event to update UI
-		w.Header().Set(values.HeaderHXTrigger, values.EventUserSignedOut)
+		// Trigger HTMX event AFTER settle so cookie is fully cleared
+		w.Header().Set(values.HeaderHXTriggerAfterSettle, values.EventUserSignedOut)
 		w.WriteHeader(http.StatusOK)
 
 		// Return updated sign-in panel (anonymous)
@@ -236,6 +238,14 @@ func SignInPanelHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", values.ContentTypeHTML)
 
 		ui.SignInPanel(GetUserName(r), false).Render(r.Context(), w)
+	}
+}
+
+// NavAuthButtonsHandler returns the auth-dependent nav buttons (My Collection, Register)
+func NavAuthButtonsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", values.ContentTypeHTML)
+		ui.NavAuthButtons(IsUserSignedIn(r)).Render(r.Context(), w)
 	}
 }
 

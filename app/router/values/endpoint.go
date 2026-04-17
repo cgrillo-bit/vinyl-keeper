@@ -19,5 +19,6 @@ const (
 	EndpointFilter     = "/filter"
 	EndpointNew        = "/new"
 	EndpointUserDelete = "/delete-user"
-	EndpointSignOut    = "/signout"
+	EndpointSignOut       = "/signout"
+	EndpointNavAuthButtons = "/nav/auth-buttons"
 )

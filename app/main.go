@@ -141,10 +141,6 @@ func main() {
 
 	// Modal content routes
 	r.Route(http.MethodGet,
-		values.EndpointModal+"/all-vinyl",
-		router.ModalAllVinylHandler(keeper.GetVinylIndex))
-
-	r.Route(http.MethodGet,
 		values.EndpointModal+"/my-collection",
 		router.ModalMyCollectionHandler(keeper.GetVinylIndex))
 
@@ -189,6 +185,11 @@ func main() {
 	r.Route(http.MethodPost,
 		values.EndpointSignIn+values.EndpointSignOut,
 		router.SignOutHandler())
+
+	// Nav auth buttons (refreshes on sign-in/sign-out)
+	r.Route(http.MethodGet,
+		values.EndpointNavAuthButtons,
+		router.NavAuthButtonsHandler())
 
 	// Album filtering routes
 	r.Route(http.MethodGet,

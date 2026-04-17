@@ -8,7 +8,7 @@ import (
 	"github.com/ninesl/vinyl-keeper/app/vinyl"
 )
 
-templ AlbumCard(v vinyl.VinylUnique, showDelete bool, showSimilarity bool, similarity float64) {
+templ AlbumCard(v vinyl.VinylUnique, showSimilarity bool, similarity float64) {
 	@card.Card(card.Props{ID: fmt.Sprintf("vinyl-%d", v.VinylID), Class: "overflow-hidden"}) {
 		<img
 			class="aspect-square w-full object-cover"
@@ -30,20 +30,6 @@ templ AlbumCard(v vinyl.VinylUnique, showDelete bool, showSimilarity bool, simil
 			}
 			if showSimilarity {
 				<div class="text-sm font-medium text-primary">Match: { fmt.Sprintf("%.1f", similarity) }%</div>
-			}
-			if showDelete {
-				@button.Button(button.Props{
-					Variant: button.VariantDestructive,
-					FullWidth: true,
-					Attributes: templ.Attributes{
-						"hx-delete":  fmt.Sprintf(values.EndpointDelete+"/%d", v.VinylID),
-						"hx-target":  fmt.Sprintf("#vinyl-%d", v.VinylID),
-						"hx-swap":    "outerHTML",
-						"hx-confirm": "Are you sure you want to delete this vinyl?",
-					},
-				}) {
-					Delete
-				}
 			}
 		}
 	}
@@ -100,7 +86,7 @@ templ LowConfidenceChoiceCard(v vinyl.VinylUnique, similarity float64) {
 				<p class="text-sm text-muted-foreground">We found a possible match, but we're not very confident. Is this correct?</p>
 			}
 		}
-		@AlbumCard(v, false, false, 0)
+		@AlbumCard(v, false, 0)
 		<div class="flex flex-wrap items-center justify-center gap-3">
 			@button.Button(button.Props{
 				Attributes: templ.Attributes{

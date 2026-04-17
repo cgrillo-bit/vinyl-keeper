@@ -94,23 +94,29 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			log.Printf("[Auth] Error reading session: %v", err)
 		}
 
+		var user *vinyl.User
 		if sessionUser != nil {
-			user := &vinyl.User{
+			user = &vinyl.User{
 				UserID:   sessionUser.UserID,
 				UserName: sessionUser.Username,
 			}
-			r = r.WithContext(context.WithValue(r.Context(), userContextKey, user))
 		}
+		// Always set the context value so downstream can detect if middleware ran
+		r = r.WithContext(context.WithValue(r.Context(), userContextKey, user))
 
 		next.ServeHTTP(w, r)
 	})
 }
 
 // GetUserFromContext extracts the authenticated user from the request context
-// Returns nil if no user is authenticated
-func GetUserFromContext(ctx context.Context) *vinyl.User {
-	if user, ok := ctx.Value(userContextKey).(*vinyl.User); ok {
-		return user
+// Returns (nil, true) if no user is authenticated (middleware ran)
+// Returns (nil, false) if middleware didn't run (programming error)
+func GetUserFromContext(ctx context.Context) (*vinyl.User, bool) {
+	val := ctx.Value(userContextKey)
+	if val == nil {
+		// Context key doesn't exist - middleware didn't run
+		return nil, false
 	}
-	return nil
+	user, ok := val.(*vinyl.User)
+	return user, ok
 }

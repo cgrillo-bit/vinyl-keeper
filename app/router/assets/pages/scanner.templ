@@ -19,7 +19,7 @@ templ ScannerPage(title string, signedInUserName string, signedIn bool) {
 		<canvas id="canvas" class="hidden"></canvas>
 		<!-- Overlay UI layer -->
 		<div id="scanner-overlay" class="relative z-10">
-			@ui.Nav(signedInUserName)
+			@ui.Nav(signedInUserName, signedIn)
 			<div id="scan-action-zone" class="fixed left-1/2 z-40 -translate-x-1/2" style="top: calc(50% + 175px + 1.5rem);">
 				<div class="flex flex-col items-center gap-4">
 					@ScannerButtonShell(signedIn, false)

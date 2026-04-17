@@ -90,12 +90,6 @@ func ScannerPageHandler() http.HandlerFunc {
 	}
 }
 
-func ModalAllVinylHandler(
-	getIndex func() *vinyl.VinylIndex,
-) http.HandlerFunc {
-	return RenderHandler(ui.FilterPanel(values.EndpointAlbums+values.EndpointFilter, getIndex(), "all-vinyl-scope", "all-vinyl-zone", "all-vinyl-filter-artist"))
-}
-
 func ModalMyCollectionHandler(
 	getIndex func() *vinyl.VinylIndex,
 ) http.HandlerFunc {

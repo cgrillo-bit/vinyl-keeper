@@ -2,7 +2,8 @@ package values
 
 // Header constants for HTTP headers
 const (
-	HeaderHXTrigger = "HX-Trigger"
+	HeaderHXTrigger            = "HX-Trigger"
+	HeaderHXTriggerAfterSettle = "HX-Trigger-After-Settle"
 )
 
 // Event constants for HTMX events
