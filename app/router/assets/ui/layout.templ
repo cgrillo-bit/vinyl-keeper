@@ -211,8 +211,8 @@ templ SignInUserRow(user vinyl.User, signedInUserID int64) {
 					Attributes: templ.Attributes{
 						"hx-post":   values.EndpointSignIn + values.EndpointSubmit,
 						"hx-vals":   fmt.Sprintf(`{"%s":%d}`, values.QueryUserID, user.UserID),
-						"hx-swap":   "none",
-						"hx-target": "#" + values.IDSignInErrors,
+						"hx-target": "#" + values.IDModalZoneContent,
+						"hx-swap":   "innerHTML",
 					},
 				}) {
 					@icon.User(icon.Props{Class: "size-4"})
