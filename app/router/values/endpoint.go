@@ -15,6 +15,7 @@ const (
 	EndpointUsers      = "/users"
 	EndpointButton     = "/button"
 	EndpointSubmit     = "/submit"
+	EndpointBootstrap  = "/bootstrap"
 	EndpointHTMX       = "/htmx"
 	EndpointFilter     = "/filter"
 	EndpointNew        = "/new"

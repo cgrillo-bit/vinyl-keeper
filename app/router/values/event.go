@@ -2,6 +2,7 @@ package values
 
 // Header constants for HTTP headers
 const (
+	HeaderHXRequest            = "HX-Request"
 	HeaderHXTrigger            = "HX-Trigger"
 	HeaderHXTriggerAfterSettle = "HX-Trigger-After-Settle"
 )
