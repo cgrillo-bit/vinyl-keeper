@@ -212,6 +212,10 @@ func SignInSubmitHandler(k UserGetter) http.HandlerFunc {
 		// Trigger HTMX event AFTER settle so cookie is fully processed
 		w.Header().Set(values.HeaderHXTriggerAfterSettle, values.EventUserSignedIn)
 		w.WriteHeader(http.StatusOK)
+
+		// Refresh the sign-in panel to show the signed-in state
+		// oob=false because we're doing a regular swap into the modal content
+		ui.SignInPanel(user.UserName, false).Render(r.Context(), w)
 	}
 }
 
@@ -238,6 +242,15 @@ func SignInPanelHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", values.ContentTypeHTML)
 
 		ui.SignInPanel(GetUserName(r), false).Render(r.Context(), w)
+	}
+}
+
+func SignInBootstrapHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if IsUserSignedIn(r) {
+			w.Header().Set(values.HeaderHXTriggerAfterSettle, values.EventUserSignedIn)
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

@@ -166,6 +166,10 @@ func main() {
 		router.SignInButtonHandler(keeper))
 
 	r.Route(http.MethodGet,
+		values.EndpointSignIn+values.EndpointBootstrap,
+		router.SignInBootstrapHandler())
+
+	r.Route(http.MethodGet,
 		values.EndpointSignIn+values.EndpointUsers,
 		router.SignInUsersListHandler(keeper))
 
