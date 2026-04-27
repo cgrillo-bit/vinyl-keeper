@@ -37,7 +37,7 @@ templ Layout(title string) {
 }
 
 templ Nav(signedInUserName string, signedIn bool) {
-	<nav class="pointer-events-auto mx-auto mb-6 flex w-full max-w-7xl items-center gap-2 rounded-lg border bg-card/80 p-3 backdrop-blur">
+	<nav class="pointer-events-auto fixed top-4 md:top-6 left-4 md:left-6 right-4 md:right-6 z-50 mx-auto mb-6 flex w-auto max-w-7xl items-center gap-2 rounded-lg border bg-card/80 p-3 backdrop-blur">
 		<div class="flex flex-wrap items-center gap-2">
 			@NavAuthButtons(signedIn)
 		</div>
