@@ -81,6 +81,11 @@ func setEmbeddingRoutes(r *router.Router, keeper *keeper) {
 				copy(mainEmb, emb)
 				return keeper.FindClosestVinyl(mainEmb)
 			},
+			FindClosestVinyls: func(emb router.Embedding, n int) []vinyl.VinylUnique {
+				mainEmb := make(Embedding, len(emb))
+				copy(mainEmb, emb)
+				return keeper.FindClosestVinyls(mainEmb, n)
+			},
 			GetVinyl:   keeper.GetVinyl,
 			PlayRecord: keeper.PlayRecord,
 			GetUserID:  router.GetUserID,

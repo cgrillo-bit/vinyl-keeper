@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -613,20 +614,51 @@ func cosineSimilarity(a, b Embedding) float64 {
 // FindClosestVinyl finds the vinyl that is closest to the input embedding
 // input embedding is usually going to be from the user's image
 func (k *keeper) FindClosestVinyl(input Embedding) vinyl.VinylUnique {
+	vinyls := k.FindClosestVinyls(input, 1)
+	if len(vinyls) == 0 {
+		return vinyl.VinylUnique{}
+	}
+	return vinyls[0]
+}
+
+func (k *keeper) FindClosestVinyls(input Embedding, n int) []vinyl.VinylUnique {
+	if n <= 0 {
+		return []vinyl.VinylUnique{}
+	}
+
+	type scoredVinyl struct {
+		vinylID    int64
+		similarity float64
+	}
+
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 
-	var bestVinylID int64
-	maxSimilarity := -1.0
+	scored := make([]scoredVinyl, 0, len(k.embeddingLookup))
 	for vID, embedding := range k.embeddingLookup {
-		similarity := cosineSimilarity(input, embedding)
-		if similarity > maxSimilarity {
-			maxSimilarity = similarity
-			bestVinylID = vID
-		}
+		scored = append(scored, scoredVinyl{
+			vinylID:    vID,
+			similarity: cosineSimilarity(input, embedding),
+		})
 	}
 
-	return k.vinylLookup[bestVinylID]
+	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].similarity == scored[j].similarity {
+			return scored[i].vinylID < scored[j].vinylID
+		}
+		return scored[i].similarity > scored[j].similarity
+	})
+
+	if n > len(scored) {
+		n = len(scored)
+	}
+
+	result := make([]vinyl.VinylUnique, 0, n)
+	for i := 0; i < n; i++ {
+		result = append(result, k.vinylLookup[scored[i].vinylID])
+	}
+
+	return result
 }
 
 // GetVinylIndex returns the vinyl index, rebuilding it if necessary

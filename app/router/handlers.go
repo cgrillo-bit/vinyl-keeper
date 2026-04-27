@@ -19,8 +19,6 @@ import (
 // Embedding is a float64 slice
 type Embedding []float64
 
-
-
 // parseFilterCriteria extracts filter criteria from query parameters
 func parseFilterCriteria(r *http.Request) vinyl.FilterCriteria {
 	query := r.URL.Query()
@@ -44,6 +42,7 @@ func nonEmptyValues(values []string) []string {
 type ScanHandlerParams struct {
 	GetEmbedding           func([]byte) (Embedding, error)
 	FindClosestVinylUnqiue func(Embedding) vinyl.VinylUnique
+	FindClosestVinyls      func(Embedding, int) []vinyl.VinylUnique
 	GetVinyl               func(vinylID int64) *vinyl.VinylUnique
 	PlayRecord             func(vinylID, userID int64) error
 	GetUserID              func(*http.Request) int64
@@ -251,26 +250,32 @@ func ScanCoverHTMLHandler(params ScanHandlerParams) http.HandlerFunc {
 			return
 		}
 
-		// Find closest vinyl
-		vinylResult := params.FindClosestVinylUnqiue(embedding)
+		candidates := []vinyl.VinylUnique{}
+		if params.FindClosestVinyls != nil {
+			candidates = params.FindClosestVinyls(embedding, 4)
+		} else {
+			vinylResult := params.FindClosestVinylUnqiue(embedding)
+			if vinylResult.VinylID != 0 {
+				candidates = append(candidates, vinylResult)
+			}
+		}
 
-		if vinylResult.VinylID == 0 {
+		if len(candidates) == 0 {
 			parts.ErrorMessage("No matching vinyl found").Render(r.Context(), w)
 			return
 		}
 
-		// Decode the embedding from blob to calculate similarity
-		vinylEmbedding, err := embeddingFromBlob(vinylResult.CoverEmbedding)
-		if err != nil {
-			parts.ErrorMessage("Failed to decode vinyl embedding").Render(r.Context(), w)
-			return
+		similarities := make([]float64, 0, len(candidates))
+		for _, candidate := range candidates {
+			candidateEmbedding, decodeErr := embeddingFromBlob(candidate.CoverEmbedding)
+			if decodeErr != nil {
+				parts.ErrorMessage("Failed to decode vinyl embedding").Render(r.Context(), w)
+				return
+			}
+			similarities = append(similarities, cosineSimilarity(embedding, candidateEmbedding)*100)
 		}
 
-		// Calculate similarity
-		sim := cosineSimilarity(embedding, vinylEmbedding)
-
-		// Always show choice card with confidence badge
-		pages.LowConfidenceChoiceCard(vinylResult, sim*100).Render(r.Context(), w)
+		pages.LowConfidenceChoiceCards(candidates, similarities).Render(r.Context(), w)
 	}
 }
 
@@ -375,7 +380,7 @@ func RegisterSubmitHandler(params RegisterHandlerParams) http.HandlerFunc {
 		}
 
 		SetHXTrigger(w, values.EventVinylRegistered)
-		pages.AlbumCard(vinylUnique).Render(r.Context(), w)
+		parts.VinylCard(parts.NewAlbumVinylRender(vinylUnique)).Render(r.Context(), w)
 	}
 }
 

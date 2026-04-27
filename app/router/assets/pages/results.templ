@@ -5,16 +5,12 @@ import (
 	"github.com/ninesl/vinyl-keeper/app/vinyl"
 )
 
-templ AlbumCard(v vinyl.VinylUnique) {
-	@parts.AlbumCard(v)
-}
-
 templ ScanResultCard(v vinyl.VinylUnique, similarity float64) {
 	@parts.ConfidenceBadgeWrapper(similarity) {
-		@parts.AlbumCard(v)
+		@parts.VinylCard(parts.NewAlbumVinylRender(v))
 	}
 }
 
-templ LowConfidenceChoiceCard(v vinyl.VinylUnique, similarity float64) {
-	@parts.LowConfidenceChoiceCard(v, similarity)
+templ LowConfidenceChoiceCards(vinyls []vinyl.VinylUnique, similarities []float64) {
+	@parts.LowConfidenceChoiceCards(vinyls, similarities)
 }

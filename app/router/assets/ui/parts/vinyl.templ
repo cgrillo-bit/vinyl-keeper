@@ -2,6 +2,7 @@ package parts
 
 import (
 	"fmt"
+	"strings"
 	"time"
 	"github.com/ninesl/vinyl-keeper/app/router/assets/ui/components/button"
 	"github.com/ninesl/vinyl-keeper/app/router/assets/ui/components/card"
@@ -14,7 +15,119 @@ func formatShortDate(dateStr string) string {
 	if err != nil {
 		return dateStr
 	}
-	return t.Format("02/01/06")
+	return t.Format("1/2/06")
+}
+
+func displayArtistName(artist string) string {
+	trimmed := strings.TrimSpace(artist)
+	end := strings.LastIndex(trimmed, ")")
+	if end == -1 {
+		return trimmed
+	}
+	start := strings.LastIndex(trimmed[:end], "(")
+	if start == -1 || start >= end {
+		return trimmed
+	}
+	left := strings.TrimSpace(trimmed[:start])
+	right := strings.TrimSpace(trimmed[end+1:])
+	if left == "" {
+		return right
+	}
+	if right == "" {
+		return left
+	}
+	return left + " " + right
+}
+
+type VinylRender struct {
+	VinylID           int64
+	VinylTitle        string
+	VinylArtist       string
+	VinylPressingYear int64
+	Genres            *string
+	Styles            *string
+	Plays             *int64
+	FirstPlayed       *string
+	LastPlayed        *string
+}
+
+func NewAlbumVinylRender(v vinyl.VinylUnique) VinylRender {
+	return VinylRender{
+		VinylID:           v.VinylID,
+		VinylTitle:        v.VinylTitle,
+		VinylArtist:       v.VinylArtist,
+		VinylPressingYear: v.VinylPressingYear,
+		Genres:            v.Genres,
+		Styles:            v.Styles,
+	}
+}
+
+func NewMyVinylRender(v vinyl.VinylWithPlayData) VinylRender {
+	plays := v.Plays
+	return VinylRender{
+		VinylID:           v.VinylID,
+		VinylTitle:        v.VinylTitle,
+		VinylArtist:       v.VinylArtist,
+		VinylPressingYear: v.VinylPressingYear,
+		Genres:            v.Genres,
+		Styles:            v.Styles,
+		Plays:             &plays,
+		FirstPlayed:       v.FirstPlayed,
+		LastPlayed:        v.LastPlayed,
+	}
+}
+
+func (r VinylRender) hasPlayData() bool {
+	return r.Plays != nil || r.FirstPlayed != nil || r.LastPlayed != nil
+}
+
+func (r VinylRender) showPlaySummary() bool {
+	return r.Plays != nil
+}
+
+func (r VinylRender) showPlayDetails() bool {
+	return r.hasPlayData()
+}
+
+func (r VinylRender) metaInSpoiler() bool {
+	return r.hasPlayData() || r.Genres != nil || r.Styles != nil
+}
+
+func (r VinylRender) playedSummaryText() string {
+	if r.Plays == nil {
+		return ""
+	}
+	if *r.Plays == 1 {
+		return "Played 1 time"
+	}
+	return fmt.Sprintf("Played %d times", *r.Plays)
+}
+
+func (r VinylRender) playedDetailsText() string {
+	if r.Plays == nil {
+		return "--"
+	}
+	return fmt.Sprintf("%d", *r.Plays)
+}
+
+func (r VinylRender) addedDateText() string {
+	if r.FirstPlayed != nil {
+		return formatShortDate(*r.FirstPlayed)
+	}
+	if r.LastPlayed != nil {
+		return formatShortDate(*r.LastPlayed)
+	}
+	return "--"
+}
+
+func (r VinylRender) lastDateText() string {
+	if r.LastPlayed != nil {
+		return formatShortDate(*r.LastPlayed)
+	}
+	if r.FirstPlayed != nil {
+		return formatShortDate(*r.FirstPlayed)
+	}
+	return "--"
 }
 
 templ ConfidenceBadge(similarity float64) {
@@ -38,113 +151,57 @@ templ ConfidenceBadgeWrapper(similarity float64) {
 	</div>
 }
 
-templ AlbumCard(v vinyl.VinylUnique) {
-	@card.Card(card.Props{ID: fmt.Sprintf("vinyl-%d", v.VinylID), Class: "overflow-hidden"}) {
+templ VinylCard(r VinylRender) {
+	@card.Card(card.Props{ID: fmt.Sprintf("vinyl-%d", r.VinylID), Class: "overflow-hidden rounded-none"}) {
 		<details class="album-details w-full">
 			<summary class="relative block list-none cursor-pointer select-none outline-none">
 				<img
 					class="aspect-square w-full object-cover"
-					src={ fmt.Sprintf(values.EndpointCover+"/%d", v.VinylID) }
-					alt={ v.VinylTitle + " by " + v.VinylArtist }
+					src={ fmt.Sprintf(values.EndpointCover+"/%d", r.VinylID) }
+					alt={ r.VinylTitle + " by " + displayArtistName(r.VinylArtist) }
 					loading="lazy"
 				/>
 				<!-- Default overlay -->
 				<div class="overlay-default absolute inset-0">
 					<div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-2 pt-6 pb-2 text-white">
-						<div class="text-sm font-semibold leading-tight">{ v.VinylTitle }</div>
-						<div class="text-xs text-white/80">{ v.VinylArtist }</div>
+						<div class="text-sm font-semibold leading-tight">{ r.VinylTitle }</div>
+						<div class="text-xs text-white/80">{ displayArtistName(r.VinylArtist) }</div>
 					</div>
 					<div class="absolute bottom-2 right-2 text-right text-[10px] text-white/90 drop-shadow-sm">
-						if v.Genres != nil {
-							<div class="mb-0.5">{ *v.Genres }</div>
-						}
-						<div class="text-xs font-semibold">{ fmt.Sprintf("%d", v.VinylPressingYear) }</div>
-					</div>
-				</div>
-				<!-- Spoiler overlay -->
-				<div class="overlay-spoiler absolute inset-0 flex-col items-center justify-center gap-2 bg-black/60 p-4 text-center text-white backdrop-blur-sm">
-					if v.Styles != nil {
-						<div class="text-xs font-medium">{ *v.Styles }</div>
-					}
-				</div>
-			</summary>
-		</details>
-	}
-}
-
-templ MyVinylCard(v vinyl.VinylWithPlayData) {
-	@card.Card(card.Props{ID: fmt.Sprintf("vinyl-%d", v.VinylID), Class: "overflow-hidden"}) {
-		<details class="album-details w-full">
-			<summary class="relative block list-none cursor-pointer select-none outline-none">
-				<img
-					class="aspect-square w-full object-cover"
-					src={ fmt.Sprintf(values.EndpointCover+"/%d", v.VinylID) }
-					alt={ v.VinylTitle + " by " + v.VinylArtist }
-				/>
-				<!-- Default overlay -->
-				<div class="overlay-default absolute inset-0">
-					<div class="absolute left-2 top-2 rounded bg-black/50 px-2 py-1 text-xs text-white backdrop-blur-sm">
-						<span class="font-medium">
-							if v.Plays == 1 {
-								Played 1 time
-							} else {
-								{ fmt.Sprintf("Played %d times", v.Plays) }
-							}
-						</span>
-					</div>
-					<div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-2 pt-6 pb-2 text-white">
-						<div class="text-sm font-semibold leading-tight">{ v.VinylTitle }</div>
-						<div class="text-xs text-white/80">{ v.VinylArtist }</div>
-					</div>
-					<div class="absolute bottom-2 right-2 text-right text-xs font-semibold text-white/90 drop-shadow-sm">
-						{ fmt.Sprintf("%d", v.VinylPressingYear) }
+						<div class="text-xs font-semibold">{ fmt.Sprintf("%d", r.VinylPressingYear) }</div>
 					</div>
 				</div>
 				<!-- Spoiler overlay -->
 				<div class="overlay-spoiler absolute inset-0 bg-black/60">
-					<div class="absolute left-2 top-2 z-20 rounded bg-black/50 px-2 py-1.5 text-xs text-white backdrop-blur-sm">
-						<div class="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
-							<span class="text-white/70">Played</span>
-							<span class="text-right font-medium">
-								if v.Plays == 1 {
-									1 time
-								} else {
-									{ fmt.Sprintf("%d times", v.Plays) }
-								}
-							</span>
-							<span class="text-white/70">Added</span>
-							<span class="text-right">
-								if v.FirstPlayed != nil {
-									{ formatShortDate(*v.FirstPlayed) }
-								} else if v.LastPlayed != nil {
-									{ formatShortDate(*v.LastPlayed) }
-								} else {
-									--
-								}
-							</span>
-							<span class="text-white/70">Last</span>
-							<span class="text-right">
-								if v.LastPlayed != nil {
-									{ formatShortDate(*v.LastPlayed) }
-								} else if v.FirstPlayed != nil {
-									{ formatShortDate(*v.FirstPlayed) }
-								} else {
-									--
-								}
-							</span>
+					if r.showPlayDetails() {
+						<div class="absolute left-2 top-2 z-20 rounded bg-black/50 px-2 py-1.5 text-xs text-white backdrop-blur-sm">
+							<div class="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+								<span class="text-white/70">Spins</span>
+								<span class="text-right font-medium">{ r.playedDetailsText() }</span>
+								<span class="text-white/70">Added</span>
+								<span class="text-right">{ r.addedDateText() }</span>
+								<span class="text-white/70">Last</span>
+								<span class="text-right">{ r.lastDateText() }</span>
+							</div>
 						</div>
-					</div>
+					}
 					<div class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 text-center text-white backdrop-blur-sm">
-						if v.Styles != nil {
-							<div class="text-xs font-medium">{ *v.Styles }</div>
+						if r.Styles != nil {
+							<div class="text-xs font-medium">{ *r.Styles }</div>
 						}
 					</div>
-					<div class="absolute bottom-2 right-2 z-20 text-right text-[10px] text-white/90 drop-shadow-sm">
-						if v.Genres != nil {
-							<div class="mb-0.5">{ *v.Genres }</div>
-						}
-						<div class="text-xs font-semibold">{ fmt.Sprintf("%d", v.VinylPressingYear) }</div>
+					<div class="absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-2 pt-6 pb-2 text-white">
+						<div class="text-sm font-semibold leading-tight">{ r.VinylTitle }</div>
+						<div class="text-xs text-white/80">{ displayArtistName(r.VinylArtist) }</div>
 					</div>
+					if r.metaInSpoiler() {
+						<div class="absolute bottom-2 right-2 z-20 text-right text-[10px] text-white/90 drop-shadow-sm">
+							if r.Genres != nil {
+								<div class="mb-0.5">{ *r.Genres }</div>
+							}
+							<div class="text-xs font-semibold">{ fmt.Sprintf("%d", r.VinylPressingYear) }</div>
+						</div>
+					}
 				</div>
 			</summary>
 		</details>
@@ -157,21 +214,43 @@ templ EmptyState(message string) {
 	</div>
 }
 
-templ LowConfidenceChoiceCard(v vinyl.VinylUnique, similarity float64) {
-	@ConfidenceBadgeWrapper(similarity) {
-		@AlbumCard(v)
-	}
-	<div class="mt-2 flex items-center justify-center gap-3">
-		@button.Button(button.Props{
-			Attributes: templ.Attributes{
-				"hx-post":   values.EndpointSearch + values.EndpointHTMX,
-				"hx-vals":   fmt.Sprintf(`{"%s":1,"%s":%d,"%s":%.1f}`, values.QueryConfirm, values.ParamVinylID, v.VinylID, values.QuerySimilarity, similarity),
-				"hx-target": "#" + values.IDModalZoneContent,
-				"hx-swap":   "innerHTML",
-			},
-		}) {
-			Yes, this is correct
-		}
+templ LowConfidenceChoiceCards(vinyls []vinyl.VinylUnique, similarities []float64) {
+	<form
+		class="space-y-2"
+		hx-post={ values.EndpointSearch + values.EndpointHTMX }
+		hx-target={ "#" + values.IDModalZoneContent }
+		hx-swap="innerHTML"
+	>
+		<input type="hidden" name={ values.QueryConfirm } value="1"/>
+		<div class="mx-auto grid max-w-7xl grid-cols-2 gap-2">
+			for i, v := range vinyls {
+				{{ similarity := 0.0 }}
+				if i < len(similarities) {
+					{{ similarity = similarities[i] }}
+				}
+				<label class="block cursor-pointer">
+					@ConfidenceBadgeWrapper(similarity) {
+						@VinylCard(NewAlbumVinylRender(v))
+					}
+					<div class="mt-1 flex items-center gap-2 px-1 text-sm">
+						<input
+							type="radio"
+							name={ values.ParamVinylID }
+							value={ fmt.Sprintf("%d", v.VinylID) }
+							checked?={ i == 0 }
+						/>
+						<span>Select this album</span>
+					</div>
+				</label>
+			}
+		</div>
+		<div class="mt-2 flex items-center justify-center">
+			@button.Button(button.Props{Type: "submit"}) {
+				Yes, this is correct
+			}
+		</div>
+	</form>
+	<div class="mt-2 flex items-center justify-center">
 		@button.Button(button.Props{
 			Variant: button.VariantSecondary,
 			Attributes: templ.Attributes{
