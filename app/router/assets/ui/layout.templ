@@ -17,7 +17,7 @@ import (
 
 templ Layout(title string) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark">
+	<html lang="en" class="dark overflow-hidden">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -30,7 +30,7 @@ templ Layout(title string) {
 			<link rel="stylesheet" href="/assets/css/output.css"/>
 			<link rel="stylesheet" href="/assets/css/styles.css"/>
 		</head>
-		<body class="min-h-screen bg-background text-foreground p-4 md:p-6">
+		<body class="min-h-screen bg-background text-foreground p-4 md:p-6 overflow-hidden">
 			{ children... }
 		</body>
 	</html>
