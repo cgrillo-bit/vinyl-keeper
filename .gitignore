@@ -22,3 +22,5 @@ deploy/
 .env.prod
 .env.dev
 certs/
+
+store.mindtick
