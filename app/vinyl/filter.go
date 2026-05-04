@@ -5,9 +5,56 @@ import (
 	"strings"
 )
 
-// VinylWithPlayData combines vinyl record data with user play statistics
+type FrontendVinyl interface {
+	ID() int64
+	Title() string
+	Artist() string
+	PressingYear() int64
+	GenresValue() *string
+	StylesValue() *string
+	CountryValue() *string
+	ReleaseDateValue() string
+	RecentPriceValue() *float64
+	ImageExtensionValue() string
+	CoverRawBlobValue() []byte
+	CoverEmbeddingValue() []byte
+}
+
+// VinylRecord is the frontend-facing model assembled from sqlc rows.
+type VinylRecord struct {
+	VinylID           int64
+	VinylTitle        string
+	VinylArtist       string
+	VinylPressingYear int64
+	MasterID          *int64
+	Genres            *string
+	Styles            *string
+	Country           *string
+	Released          string
+	RecentPrice       *float64
+	ImageExtension    string
+	CoverRawBlob      []byte
+	CoverEmbedding    []byte
+}
+
+func (v VinylRecord) ID() int64                   { return v.VinylID }
+func (v VinylRecord) Title() string               { return v.VinylTitle }
+func (v VinylRecord) Artist() string              { return v.VinylArtist }
+func (v VinylRecord) PressingYear() int64         { return v.VinylPressingYear }
+func (v VinylRecord) GenresValue() *string        { return v.Genres }
+func (v VinylRecord) StylesValue() *string        { return v.Styles }
+func (v VinylRecord) CountryValue() *string       { return v.Country }
+func (v VinylRecord) ReleaseDateValue() string    { return v.Released }
+func (v VinylRecord) RecentPriceValue() *float64  { return v.RecentPrice }
+func (v VinylRecord) ImageExtensionValue() string { return v.ImageExtension }
+func (v VinylRecord) CoverRawBlobValue() []byte   { return v.CoverRawBlob }
+func (v VinylRecord) CoverEmbeddingValue() []byte {
+	return v.CoverEmbedding
+}
+
+// VinylWithPlayData combines vinyl record data with user play statistics.
 type VinylWithPlayData struct {
-	VinylUnique
+	VinylRecord
 	Plays       int64
 	FirstPlayed *string
 	LastPlayed  *string
@@ -34,8 +81,8 @@ type FilterCriteria struct {
 	// Categories are combined with AND logic
 }
 
-// BuildVinylIndex creates a new index from a slice of vinyl records
-func BuildVinylIndex(vinyls []VinylUnique) *VinylIndex {
+// BuildVinylIndex creates a new index from a slice of vinyl records.
+func BuildVinylIndex(vinyls []VinylRecord) *VinylIndex {
 	idx := &VinylIndex{
 		ArtistMap: make(map[string]map[int64]struct{}),
 		GenreMap:  make(map[string]map[int64]struct{}),
@@ -112,20 +159,20 @@ func BuildVinylIndex(vinyls []VinylUnique) *VinylIndex {
 	return idx
 }
 
-// FilterVinylUnique filters and sorts VinylUnique records based on criteria
-func FilterVinylUnique(vinyls []VinylUnique, criteria FilterCriteria, index *VinylIndex) []VinylUnique {
+// FilterVinyl filters and sorts vinyl records based on criteria.
+func FilterVinyl(vinyls []VinylRecord, criteria FilterCriteria, index *VinylIndex) []VinylRecord {
 	// Start with all IDs, then intersect with filter criteria
 	matchingIDs := getMatchingIDs(criteria, index)
 
 	// Filter vinyl to matching IDs
-	filtered := make([]VinylUnique, 0)
+	filtered := make([]VinylRecord, 0)
 	for _, v := range vinyls {
 		if _, ok := matchingIDs[v.VinylID]; ok {
 			filtered = append(filtered, v)
 		}
 	}
 
-	// Sort by artist name, then album name
+	// Sort by artist name, then album name.
 	sort.Slice(filtered, func(i, j int) bool {
 		if filtered[i].VinylArtist != filtered[j].VinylArtist {
 			return filtered[i].VinylArtist < filtered[j].VinylArtist

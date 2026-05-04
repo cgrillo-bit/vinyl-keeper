@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	// Embed Mozilla's root CA certificates directly into the binary.
 	//
@@ -53,7 +54,7 @@ func setEmbeddingRoutes(r *router.Router, keeper *keeper) {
 				copy(result, emb)
 				return result, nil
 			},
-			FindClosestVinylUnqiue: func(emb router.Embedding) vinyl.VinylUnique {
+			FindClosestVinylUnqiue: func(emb router.Embedding) vinyl.VinylRecord {
 				// Convert router.Embedding to main.Embedding
 				mainEmb := make(Embedding, len(emb))
 				copy(mainEmb, emb)
@@ -76,12 +77,12 @@ func setEmbeddingRoutes(r *router.Router, keeper *keeper) {
 				copy(result, emb)
 				return result, nil
 			},
-			FindClosestVinylUnqiue: func(emb router.Embedding) vinyl.VinylUnique {
+			FindClosestVinylUnqiue: func(emb router.Embedding) vinyl.VinylRecord {
 				mainEmb := make(Embedding, len(emb))
 				copy(mainEmb, emb)
 				return keeper.FindClosestVinyl(mainEmb)
 			},
-			FindClosestVinyls: func(emb router.Embedding, n int) []vinyl.VinylUnique {
+			FindClosestVinyls: func(emb router.Embedding, n int) []vinyl.VinylRecord {
 				mainEmb := make(Embedding, len(emb))
 				copy(mainEmb, emb)
 				return keeper.FindClosestVinyls(mainEmb, n)
@@ -126,6 +127,18 @@ func main() {
 		log.Fatalf("image service health check failed: %v", err)
 	}
 	log.Println("[Init] Image service health check passed")
+
+	if runMainReleaseMigration() {
+		log.Println("[Migration] Starting release + plays migration")
+		if err := keeper.MigrateMainReleaseEmbeddings(); err != nil {
+			log.Fatalf("main-release migration failed: %v", err)
+		}
+		if err := keeper.MigrateLegacyUserVinylPlays(); err != nil {
+			log.Fatalf("legacy plays migration failed: %v", err)
+		}
+		log.Println("[Migration] Release + plays migration complete")
+		return
+	}
 
 	log.Println("[Init] Creating router")
 	r := router.NewRouter()
@@ -213,17 +226,17 @@ func main() {
 	r.Route(http.MethodPost,
 		values.EndpointRegister+values.EndpointSubmit,
 		router.RegisterSubmitHandler(router.RegisterHandlerParams{
-			RegisterVinyl: func(artist, album string) (vinyl.VinylUnique, error) {
+			RegisterVinyl: func(artist, album string) (vinyl.VinylRecord, error) {
 				params, err := RegisterUniqueVinylAlbumArtist(album, artist)
 				if err != nil {
-					return vinyl.VinylUnique{}, err
+					return vinyl.VinylRecord{}, err
 				}
 				return keeper.RegisterVinylUnique(params)
 			},
-			RegisterVinylID: func(masterID int) (vinyl.VinylUnique, error) {
+			RegisterVinylID: func(masterID int) (vinyl.VinylRecord, error) {
 				params, err := RegisterUniqueVinylMasterID(masterID)
 				if err != nil {
-					return vinyl.VinylUnique{}, err
+					return vinyl.VinylRecord{}, err
 				}
 				return keeper.RegisterVinylUnique(params)
 			},
@@ -292,5 +305,19 @@ func main() {
 			log.Fatalf("server error: %v", err)
 		}
 		log.Println("[Shutdown] Server shutting down")
+	}
+}
+
+func runMainReleaseMigration() bool {
+	v := strings.TrimSpace(os.Getenv("MIGRATE_MAIN_RELEASES"))
+	if v == "" {
+		return false
+	}
+
+	switch strings.ToLower(v) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }

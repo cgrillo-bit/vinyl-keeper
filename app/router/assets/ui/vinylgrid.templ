@@ -9,12 +9,13 @@ import (
 	"github.com/ninesl/vinyl-keeper/app/router/assets/ui/components/label"
 	"github.com/ninesl/vinyl-keeper/app/router/assets/ui/components/tabs"
 	"github.com/ninesl/vinyl-keeper/app/router/assets/ui/parts"
+	"github.com/ninesl/vinyl-keeper/app/router/types"
 	"github.com/ninesl/vinyl-keeper/app/router/values"
 	"github.com/ninesl/vinyl-keeper/app/vinyl"
 )
 
 // AlbumsGrid renders the grid of album cards
-templ AlbumsGrid(vinyls []vinyl.VinylUnique) {
+templ AlbumsGrid(vinyls []types.Vinyl) {
 	<div class="mx-auto grid max-w-7xl grid-cols-2 gap-2">
 		if len(vinyls) > 0 {
 			for _, v := range vinyls {
@@ -27,7 +28,7 @@ templ AlbumsGrid(vinyls []vinyl.VinylUnique) {
 }
 
 // MyVinylGrid renders the grid of vinyl with play data
-templ MyVinylGrid(vinyls []vinyl.VinylWithPlayData) {
+templ MyVinylGrid(vinyls []types.Vinyl) {
 	<div class="mx-auto grid max-w-7xl grid-cols-2 gap-2">
 		if len(vinyls) > 0 {
 			for _, v := range vinyls {

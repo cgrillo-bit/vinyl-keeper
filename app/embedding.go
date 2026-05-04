@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"os"
@@ -57,6 +58,7 @@ func RequestEmbedding(imgData []byte) (Embedding, error) {
 	if err != nil {
 		return nil, fmt.Errorf("env config: %w", err)
 	}
+	log.Printf("[Embed] Sending image to python service endpoint=http://%s:%d%s", params.Host, params.Port, params.Endpoint)
 
 	resp, err := router.SendImageBytes(params)
 	if err != nil {
@@ -72,6 +74,7 @@ func RequestEmbedding(imgData []byte) (Embedding, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("server error %d: %s", resp.StatusCode, string(body))
 	}
+	log.Printf("[Embed] Python service response status=%d", resp.StatusCode)
 
 	// Binary format: raw float64 LE bytes (embedding)
 	if len(body) == 0 {

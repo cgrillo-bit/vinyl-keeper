@@ -12,11 +12,11 @@ APP_GOARCH ?= amd64
 -include .env
 
 # Load env-specific overlays only for the relevant goals.
-ifneq (,$(filter cicd deploy-up deploy-down save sync-models sync-service-build refresh-prod-nginx,$(MAKECMDGOALS)))
+ifneq (,$(filter cicd deploy-up deploy-down backup-prod-db save sync-models sync-service-build refresh-prod-nginx,$(MAKECMDGOALS)))
 -include .env.prod
 endif
 
-ifneq (,$(filter dev dev-pods dev-down,$(MAKECMDGOALS)))
+ifneq (,$(filter dev dev-pods dev-down migrate-main-release,$(MAKECMDGOALS)))
 -include .env.dev
 endif
 
@@ -79,8 +79,10 @@ help:
 	@echo "  make dev          Run native local HTTPS stack (no containers)"
 	@echo "  make dev-pods     Run containerized local HTTPS stack"
 	@echo "  make dev-down     Stop local containerized stack"
+	@echo "  make migrate-main-release Run release/plays migration with local image-service"
 	@echo "  make cicd         Build, ship, and deploy to VPS"
 	@echo "  make deploy-down  Stop prod stack on VPS"
+	@echo "  make backup-prod-db  Rsync prod database from VPS to ./data/"
 	@echo "  make refresh-prod-nginx Upload nginx config and reload nginx on VPS"
 	@echo "  make show-config  Show resolved .env/network values"
 	@echo "  make clean        Remove local build/deploy artifacts and stop local stack"
@@ -238,6 +240,27 @@ print-dev-urls:
 dev-down:
 	podman-compose -f $(COMPOSE_LOCAL) down --remove-orphans
 
+# Run one-shot DB migration using local image-service for embeddings
+migrate-main-release:
+	@command -v uv >/dev/null 2>&1 || { echo "Error: uv is required to run local image-service"; exit 1; }
+	@command -v go >/dev/null 2>&1 || { echo "Error: go is required"; exit 1; }
+	@set -eu; \
+	host="$(IMAGE_SERVICE_HOST)"; \
+	port="$(IMAGE_SERVICE_PORT)"; \
+	repo_root="$$PWD"; \
+	db_path="$(DB_PATH)"; \
+	case "$$db_path" in /data/*) db_path="$$repo_root/$${db_path#/}" ;; esac; \
+	embed_model_path="$(EMBED_MODEL_PATH)"; \
+	case "$$embed_model_path" in /models/*) embed_model_path="$$repo_root/$${embed_model_path#/}" ;; /*) ;; *) embed_model_path="$$repo_root/$$embed_model_path" ;; esac; \
+	if [ -z "$$embed_model_path" ]; then echo "Error: EMBED_MODEL_PATH is required"; exit 1; fi; \
+	mkdir -p "$$(dirname -- "$$db_path")"; \
+	echo "Starting image-service on $$host:$$port"; \
+	( cd image_service && EMBED_MODEL_PATH="$$embed_model_path" EMBED_MODEL_FAMILY="$(EMBED_MODEL_FAMILY)" EMBED_DIM="$(EMBED_DIM)" EMBED_IMAGE_SIZE="$(EMBED_IMAGE_SIZE)" uv run uvicorn image_service:app --host "$$host" --port "$$port" ) & \
+	uvicorn_pid=$$!; \
+	cleanup() { kill "$$uvicorn_pid" 2>/dev/null || true; }; \
+	trap cleanup EXIT INT TERM; \
+	MIGRATE_MAIN_RELEASES=1 IMAGE_SERVICE_HOST="$$host" IMAGE_SERVICE_PORT="$$port" IMAGE_SERVICE_ENDPOINT="$(IMAGE_SERVICE_ENDPOINT)" IMAGE_SERVICE_HEALTH_ENDPOINT="$(IMAGE_SERVICE_HEALTH_ENDPOINT)" IMAGE_SERVICE_WAIT_RETRIES="$(IMAGE_SERVICE_WAIT_RETRIES)" IMAGE_SERVICE_WAIT_SECONDS="$(IMAGE_SERVICE_WAIT_SECONDS)" DB_PATH="$$db_path" MAX_OPEN_SQLITE="$(MAX_OPEN_SQLITE)" MAX_IDLE_SQLITE="$(MAX_IDLE_SQLITE)" go -C app run .
+
 # Save built images for transport
 clean-deploy:
 	rm -f $(DEPLOY_APP_TAR) $(DEPLOY_COMPOSE) $(DEPLOY_ENV) $(DEPLOY_ENV_OVERLAY)
@@ -278,6 +301,12 @@ sync-service-build: require-vps-env
 deploy-down: require-vps-env
 	ssh $(SSH_TARGET) "cd $(VPS_PROD_DIR) && podman-compose -f $(COMPOSE_PROD) down --remove-orphans"
 
+# Backup production database locally
+backup-prod-db: require-vps-env
+	@command -v rsync >/dev/null 2>&1 || { echo "Error: rsync is required locally for backup-prod-db"; exit 1; }
+	mkdir -p ./data
+	rsync -avz $(SSH_TARGET):$(VPS_DATA_DIR)/ ./data/
+
 # Upload/activate nginx config for production host proxying
 refresh-prod-nginx: require-vps-env
 	@test -f "$(NGINX_LOCAL_CONF)" || (echo "Missing $(NGINX_LOCAL_CONF)." && exit 1)
@@ -299,4 +328,4 @@ clean:
 	rm -rf $(DEPLOY_DIR)
 	rm -rf $(CERT_DIR)
 
-.PHONY: help show-config templ templ-generate templ-watch tailwind tailwind-watch build-bin build-service build check-images certs dev dev-native dev-pods print-dev-urls dev-down clean-deploy save sync-models sync-service-build deploy-up deploy-down refresh-prod-nginx require-vps-env cicd clean
+.PHONY: help show-config templ templ-generate templ-watch tailwind tailwind-watch build-bin build-service build check-images certs dev dev-native dev-pods print-dev-urls dev-down migrate-main-release clean-deploy save sync-models sync-service-build deploy-up deploy-down backup-prod-db refresh-prod-nginx require-vps-env cicd clean

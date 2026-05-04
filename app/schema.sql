@@ -22,15 +22,10 @@ CREATE TABLE IF NOT EXISTS vinyl_unique(
 	vinyl_id INTEGER PRIMARY KEY AUTOINCREMENT,
 	vinyl_title TEXT NOT NULL,
 	vinyl_artist TEXT NOT NULL,
-	vinyl_pressing_year INTEGER NOT NULL,
-	first_pressing INTEGER NOT NULL, -- 0 false 1 true
-	discogs_master_id INTEGER,
+	master_id INTEGER,
 	styles TEXT, -- comma separated list of styles "Alternative Rock,Punk" etc
-	genres TEXT, -- comma separated list of genres "Rock,Heavy Metal" etc
-	image_extension TEXT NOT NULL,
-	cover_raw_blob BLOB NOT NULL,
-	cover_embedding BLOB NOT NULL,
-	UNIQUE (vinyl_title, vinyl_artist, vinyl_pressing_year)
+	genres TEXT, -- comma separated list of genres "Rock,Heavy Metal" etc TODO: need to make this take out '&' and whitespace
+	UNIQUE (vinyl_title, vinyl_artist)
 );
 
 CREATE TABLE IF NOT EXISTS users(
@@ -39,13 +34,43 @@ CREATE TABLE IF NOT EXISTS users(
 	date_created TEXT NOT NULL DEFAULT (date('now'))
 );
 
-CREATE TABLE IF NOT EXISTS user_vinyl_plays(
+CREATE TABLE IF NOT EXISTS vinyl_release(
+	vinyl_id INTEGER NOT NULL,
+	release_id INTEGER NOT NULL, -- from discogs api
+	lowest_price REAL,
+	price_last_updated TEXT, -- the date it gets updated/entered. "lowest_price"
+	country TEXT,
+	notes TEXT, -- discogs api
+	released TEXT NOT NULL, 
+	master_release INTEGER NOT NULL, -- 0 false 1 true
+	resource_uri TEXT NOT NULL,
+	image_extension TEXT NOT NULL,
+	cover_raw_blob BLOB NOT NULL,
+	cover_embedding BLOB NOT NULL,
+	PRIMARY KEY (vinyl_id, release_id),
+	FOREIGN KEY (vinyl_id) REFERENCES vinyl_unique(vinyl_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS vinyl_plays(
 	user_id INTEGER NOT NULL,
 	vinyl_id INTEGER NOT NULL,
-	plays INTEGER NOT NULL,
-	first_played TEXT, -- DATE
-	last_played TEXT, -- DATE
-	PRIMARY KEY (user_id, vinyl_id),
+	release_id INTEGER NOT NULL,
+	play INTEGER NOT NULL, -- 0 is 'owning' the vinyl
+	played_date TEXT NOT NULL, -- DATE
+	PRIMARY KEY (user_id, vinyl_id, release_id, play),
 	FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+	FOREIGN KEY (vinyl_id) REFERENCES vinyl_unique(vinyl_id) ON DELETE CASCADE,
+	FOREIGN KEY (vinyl_id, release_id) REFERENCES vinyl_release(vinyl_id, release_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS vinyl_releases_check(
+	vinyl_id INTEGER NOT NULL,
+	release_id INTEGER NOT NULL, -- from discogs api
+	label TEXT NOT NULL, -- from discogs api
+	country TEXT NOT NULL,
+	release_format TEXT NOT NULL,
+	released_year INTEGER NOT NULL,
+	cover_uri TEXT NOT NULL, -- from discogs api. used as a direct <img> source for releases we don't store in vinyl_release
+	PRIMARY KEY (vinyl_id, release_id),
 	FOREIGN KEY (vinyl_id) REFERENCES vinyl_unique(vinyl_id) ON DELETE CASCADE
 );

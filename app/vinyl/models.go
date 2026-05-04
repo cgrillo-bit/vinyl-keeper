@@ -10,24 +10,44 @@ type User struct {
 	DateCreated string `db:"date_created"`
 }
 
-type UserVinylPlay struct {
-	UserID      int64   `db:"user_id"`
-	VinylID     int64   `db:"vinyl_id"`
-	Plays       int64   `db:"plays"`
-	FirstPlayed *string `db:"first_played"`
-	LastPlayed  *string `db:"last_played"`
+type VinylPlay struct {
+	UserID     int64  `db:"user_id"`
+	VinylID    int64  `db:"vinyl_id"`
+	ReleaseID  int64  `db:"release_id"`
+	Play       int64  `db:"play"`
+	PlayedDate string `db:"played_date"`
+}
+
+type VinylRelease struct {
+	VinylID          int64    `db:"vinyl_id"`
+	ReleaseID        int64    `db:"release_id"`
+	LowestPrice      *float64 `db:"lowest_price"`
+	PriceLastUpdated *string  `db:"price_last_updated"`
+	Country          *string  `db:"country"`
+	Notes            *string  `db:"notes"`
+	Released         string   `db:"released"`
+	MasterRelease    int64    `db:"master_release"`
+	ResourceUri      string   `db:"resource_uri"`
+	ImageExtension   string   `db:"image_extension"`
+	CoverRawBlob     []byte   `db:"cover_raw_blob"`
+	CoverEmbedding   []byte   `db:"cover_embedding"`
+}
+
+type VinylReleasesCheck struct {
+	VinylID       int64  `db:"vinyl_id"`
+	ReleaseID     int64  `db:"release_id"`
+	Label         string `db:"label"`
+	Country       string `db:"country"`
+	ReleaseFormat string `db:"release_format"`
+	ReleasedYear  int64  `db:"released_year"`
+	CoverUri      string `db:"cover_uri"`
 }
 
 type VinylUnique struct {
-	VinylID           int64   `db:"vinyl_id"`
-	VinylTitle        string  `db:"vinyl_title"`
-	VinylArtist       string  `db:"vinyl_artist"`
-	VinylPressingYear int64   `db:"vinyl_pressing_year"`
-	FirstPressing     int64   `db:"first_pressing"`
-	DiscogsMasterID   *int64  `db:"discogs_master_id"`
-	Styles            *string `db:"styles"`
-	Genres            *string `db:"genres"`
-	ImageExtension    string  `db:"image_extension"`
-	CoverRawBlob      []byte  `db:"cover_raw_blob"`
-	CoverEmbedding    []byte  `db:"cover_embedding"`
+	VinylID     int64   `db:"vinyl_id"`
+	VinylTitle  string  `db:"vinyl_title"`
+	VinylArtist string  `db:"vinyl_artist"`
+	MasterID    *int64  `db:"master_id"`
+	Styles      *string `db:"styles"`
+	Genres      *string `db:"genres"`
 }

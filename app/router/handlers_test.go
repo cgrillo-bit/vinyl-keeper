@@ -28,7 +28,7 @@ func TestScanCoverHTMLHandler_HighConfidence(t *testing.T) {
 	}
 
 	// Mock vinyl with matching embedding
-	mockVinyl := vinyl.VinylUnique{
+	mockVinyl := vinyl.VinylRecord{
 		VinylID:           1,
 		VinylTitle:        "Test Album",
 		VinylArtist:       "Test Artist",
@@ -42,7 +42,7 @@ func TestScanCoverHTMLHandler_HighConfidence(t *testing.T) {
 		GetEmbedding: func(img []byte) (Embedding, error) {
 			return testEmbedding, nil
 		},
-		FindClosestVinylUnqiue: func(emb Embedding) vinyl.VinylUnique {
+		FindClosestVinylUnqiue: func(emb Embedding) vinyl.VinylRecord {
 			return mockVinyl
 		},
 	}
@@ -107,7 +107,7 @@ func TestScanCoverHTMLHandler_LowConfidence(t *testing.T) {
 		}
 	}
 
-	mockVinyl := vinyl.VinylUnique{
+	mockVinyl := vinyl.VinylRecord{
 		VinylID:           1,
 		VinylTitle:        "Different Album",
 		VinylArtist:       "Different Artist",
@@ -121,7 +121,7 @@ func TestScanCoverHTMLHandler_LowConfidence(t *testing.T) {
 		GetEmbedding: func(img []byte) (Embedding, error) {
 			return scannedEmbedding, nil
 		},
-		FindClosestVinylUnqiue: func(emb Embedding) vinyl.VinylUnique {
+		FindClosestVinylUnqiue: func(emb Embedding) vinyl.VinylRecord {
 			return mockVinyl
 		},
 	}
@@ -166,10 +166,8 @@ func TestScanCoverHTMLHandler_LowConfidence(t *testing.T) {
 	}
 }
 
-
-
 func TestScanCoverHTMLHandler_ConfirmFlow_PassesUserIDToPlayRecord(t *testing.T) {
-	mockVinyl := vinyl.VinylUnique{
+	mockVinyl := vinyl.VinylRecord{
 		VinylID:           1,
 		VinylTitle:        "Confirmed Album",
 		VinylArtist:       "Confirmed Artist",
@@ -181,7 +179,7 @@ func TestScanCoverHTMLHandler_ConfirmFlow_PassesUserIDToPlayRecord(t *testing.T)
 	var gotUserID int64
 
 	params := ScanHandlerParams{
-		GetVinyl: func(vinylID int64) *vinyl.VinylUnique {
+		GetVinyl: func(vinylID int64) *vinyl.VinylRecord {
 			if vinylID != 1 {
 				t.Fatalf("expected vinylID 1 in confirm flow, got %d", vinylID)
 			}
@@ -222,7 +220,7 @@ func TestMyVinylFilterHandler_PassesUserID(t *testing.T) {
 		return []vinyl.VinylWithPlayData{}
 	}
 
-	index := vinyl.BuildVinylIndex([]vinyl.VinylUnique{})
+	index := vinyl.BuildVinylIndex([]vinyl.VinylRecord{})
 	handler := MyVinylFilterHandler(
 		getMyVinyl,
 		func() *vinyl.VinylIndex { return index },
@@ -247,8 +245,8 @@ func TestScanCoverHTMLHandler_InvalidImage(t *testing.T) {
 		GetEmbedding: func(img []byte) (Embedding, error) {
 			return nil, nil
 		},
-		FindClosestVinylUnqiue: func(emb Embedding) vinyl.VinylUnique {
-			return vinyl.VinylUnique{}
+		FindClosestVinylUnqiue: func(emb Embedding) vinyl.VinylRecord {
+			return vinyl.VinylRecord{}
 		},
 	}
 
@@ -285,9 +283,9 @@ func TestScanCoverHTMLHandler_NoVinylFound(t *testing.T) {
 		GetEmbedding: func(img []byte) (Embedding, error) {
 			return testEmbedding, nil
 		},
-		FindClosestVinylUnqiue: func(emb Embedding) vinyl.VinylUnique {
+		FindClosestVinylUnqiue: func(emb Embedding) vinyl.VinylRecord {
 			// Return zero-value vinyl (VinylID = 0)
-			return vinyl.VinylUnique{}
+			return vinyl.VinylRecord{}
 		},
 	}
 

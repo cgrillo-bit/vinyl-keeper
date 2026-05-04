@@ -12,6 +12,7 @@ import (
 	"github.com/ninesl/vinyl-keeper/app/router/assets/pages"
 	"github.com/ninesl/vinyl-keeper/app/router/assets/ui"
 	"github.com/ninesl/vinyl-keeper/app/router/assets/ui/parts"
+	routertypes "github.com/ninesl/vinyl-keeper/app/router/types"
 	"github.com/ninesl/vinyl-keeper/app/router/values"
 	"github.com/ninesl/vinyl-keeper/app/vinyl"
 )
@@ -41,15 +42,15 @@ func nonEmptyValues(values []string) []string {
 
 type ScanHandlerParams struct {
 	GetEmbedding           func([]byte) (Embedding, error)
-	FindClosestVinylUnqiue func(Embedding) vinyl.VinylUnique
-	FindClosestVinyls      func(Embedding, int) []vinyl.VinylUnique
-	GetVinyl               func(vinylID int64) *vinyl.VinylUnique
+	FindClosestVinylUnqiue func(Embedding) vinyl.VinylRecord
+	FindClosestVinyls      func(Embedding, int) []vinyl.VinylRecord
+	GetVinyl               func(vinylID int64) *vinyl.VinylRecord
 	PlayRecord             func(vinylID, userID int64) error
 	GetUserID              func(*http.Request) int64
 }
 
 type ScanResult struct {
-	Vinyl      vinyl.VinylUnique `json:"vinyl"`
+	Vinyl      vinyl.VinylRecord `json:"vinyl"`
 	Found      bool              `json:"found"`
 	Similarity float64           `json:"similarity"`
 }
@@ -106,7 +107,7 @@ func setUserCookie(w http.ResponseWriter, userID int64) {
 }
 
 func AlbumsFilterHandler(
-	getAllVinyls func() []vinyl.VinylUnique,
+	getAllVinyls func() []vinyl.VinylRecord,
 	getIndex func() *vinyl.VinylIndex,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -116,8 +117,8 @@ func AlbumsFilterHandler(
 		vinyls := getAllVinyls()
 		index := getIndex()
 
-		filtered := vinyl.FilterVinylUnique(vinyls, criteria, index)
-		ui.AlbumsGrid(filtered).Render(r.Context(), w)
+		filtered := vinyl.FilterVinyl(vinyls, criteria, index)
+		ui.AlbumsGrid(toVinylViews(filtered)).Render(r.Context(), w)
 	}
 }
 
@@ -135,7 +136,7 @@ func MyVinylFilterHandler(
 		index := getIndex()
 
 		filtered := vinyl.FilterVinylWithPlayData(vinyls, criteria, index)
-		ui.MyVinylGrid(filtered).Render(r.Context(), w)
+		ui.MyVinylGrid(toMyVinylViews(filtered)).Render(r.Context(), w)
 	}
 }
 
@@ -250,7 +251,7 @@ func ScanCoverHTMLHandler(params ScanHandlerParams) http.HandlerFunc {
 			return
 		}
 
-		candidates := []vinyl.VinylUnique{}
+		candidates := []vinyl.VinylRecord{}
 		if params.FindClosestVinyls != nil {
 			candidates = params.FindClosestVinyls(embedding, 4)
 		} else {
@@ -275,14 +276,14 @@ func ScanCoverHTMLHandler(params ScanHandlerParams) http.HandlerFunc {
 			similarities = append(similarities, cosineSimilarity(embedding, candidateEmbedding)*100)
 		}
 
-		pages.LowConfidenceChoiceCards(candidates, similarities).Render(r.Context(), w)
+		pages.LowConfidenceChoiceCards(toVinylViews(candidates), similarities).Render(r.Context(), w)
 	}
 }
 
-func renderAcceptedScanResult(w http.ResponseWriter, r *http.Request, params ScanHandlerParams, vinylResult vinyl.VinylUnique, similarityPercent float64) {
+func renderAcceptedScanResult(w http.ResponseWriter, r *http.Request, params ScanHandlerParams, vinylResult vinyl.VinylRecord, similarityPercent float64) {
 	if params.PlayRecord != nil {
 		userID := params.GetUserID(r)
-		if userID > 0 {
+		if userID >= 0 {
 			if err := params.PlayRecord(vinylResult.VinylID, userID); err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				parts.ErrorMessage("Failed to record play: "+err.Error()).Render(r.Context(), w)
@@ -291,7 +292,7 @@ func renderAcceptedScanResult(w http.ResponseWriter, r *http.Request, params Sca
 		}
 	}
 	SetHXTrigger(w, values.EventVinylRegistered)
-	pages.ScanResultCard(vinylResult, similarityPercent).Render(r.Context(), w)
+	pages.ScanResultCard(routertypes.FromVinylRecord(vinylResult), similarityPercent).Render(r.Context(), w)
 }
 
 func cosineSimilarity(a, b Embedding) float64 {
@@ -324,13 +325,13 @@ func embeddingFromBlob(b []byte) (Embedding, error) {
 }
 
 type RegisterHandlerParams struct {
-	RegisterVinyl   func(artist, album string) (vinyl.VinylUnique, error)
-	RegisterVinylID func(masterID int) (vinyl.VinylUnique, error)
+	RegisterVinyl   func(artist, album string) (vinyl.VinylRecord, error)
+	RegisterVinylID func(masterID int) (vinyl.VinylRecord, error)
 }
 
 type RegisterResult struct {
 	Success bool              `json:"success"`
-	Vinyl   vinyl.VinylUnique `json:"vinyl,omitempty"`
+	Vinyl   vinyl.VinylRecord `json:"vinyl,omitempty"`
 	Error   string            `json:"error,omitempty"`
 }
 
@@ -344,7 +345,7 @@ func RegisterSubmitHandler(params RegisterHandlerParams) http.HandlerFunc {
 			masterID       = r.FormValue(values.QueryMasterID)
 			nameSearch     = artist != "" && album != ""
 			masterIDSearch = masterID != ""
-			vinylUnique    vinyl.VinylUnique
+			vinylUnique    vinyl.VinylRecord
 			err            error
 		)
 
@@ -377,7 +378,7 @@ func RegisterSubmitHandler(params RegisterHandlerParams) http.HandlerFunc {
 		}
 
 		SetHXTrigger(w, values.EventVinylRegistered)
-		parts.VinylCard(parts.NewAlbumVinylRender(vinylUnique)).Render(r.Context(), w)
+		parts.VinylCard(parts.NewAlbumVinylRender(routertypes.FromVinylRecord(vinylUnique))).Render(r.Context(), w)
 	}
 }
 
@@ -416,7 +417,7 @@ func DeleteVinylHandler(params DeleteHandlerParams) http.HandlerFunc {
 }
 
 type ServeAlbumImageHandlerParams struct {
-	GetVinyl func(vinylID int64) *vinyl.VinylUnique
+	GetVinyl func(vinylID int64) *vinyl.VinylRecord
 }
 
 func HandleServeAlbumImage(params ServeAlbumImageHandlerParams) http.HandlerFunc {
@@ -449,4 +450,20 @@ func HandleServeAlbumImage(params ServeAlbumImageHandlerParams) http.HandlerFunc
 
 		w.Write(vinyl.CoverRawBlob)
 	}
+}
+
+func toVinylViews(vinyls []vinyl.VinylRecord) []routertypes.Vinyl {
+	views := make([]routertypes.Vinyl, 0, len(vinyls))
+	for _, v := range vinyls {
+		views = append(views, routertypes.FromVinylRecord(v))
+	}
+	return views
+}
+
+func toMyVinylViews(vinyls []vinyl.VinylWithPlayData) []routertypes.Vinyl {
+	views := make([]routertypes.Vinyl, 0, len(vinyls))
+	for _, v := range vinyls {
+		views = append(views, routertypes.FromVinylWithPlayData(v))
+	}
+	return views
 }

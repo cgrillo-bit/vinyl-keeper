@@ -10,7 +10,7 @@ func TestBuildVinylIndex(t *testing.T) {
 	genres2 := "Electronic"
 	styles2 := "Techno,House"
 
-	vinyls := []VinylUnique{
+	vinyls := []VinylRecord{
 		{
 			VinylID:           1,
 			VinylTitle:        "Album A",
@@ -72,7 +72,7 @@ func TestFilterVinylUnique(t *testing.T) {
 	styles1 := "Alternative Rock"
 	genres2 := "Electronic"
 
-	vinyls := []VinylUnique{
+	vinyls := []VinylRecord{
 		{
 			VinylID:           1,
 			VinylTitle:        "Album A",
@@ -105,7 +105,7 @@ func TestFilterVinylUnique(t *testing.T) {
 		criteria := FilterCriteria{
 			Artist: "Artist One",
 		}
-		filtered := FilterVinylUnique(vinyls, criteria, index)
+		filtered := FilterVinyl(vinyls, criteria, index)
 		if len(filtered) != 2 {
 			t.Errorf("expected 2 vinyls for 'Artist One', got %d", len(filtered))
 		}
@@ -115,7 +115,7 @@ func TestFilterVinylUnique(t *testing.T) {
 		criteria := FilterCriteria{
 			Genres: []string{"Rock"},
 		}
-		filtered := FilterVinylUnique(vinyls, criteria, index)
+		filtered := FilterVinyl(vinyls, criteria, index)
 		if len(filtered) != 2 {
 			t.Errorf("expected 2 vinyls with 'Rock' genre, got %d", len(filtered))
 		}
@@ -126,7 +126,7 @@ func TestFilterVinylUnique(t *testing.T) {
 			Artist: "Artist One",
 			Genres: []string{"Rock"},
 		}
-		filtered := FilterVinylUnique(vinyls, criteria, index)
+		filtered := FilterVinyl(vinyls, criteria, index)
 		if len(filtered) != 2 {
 			t.Errorf("expected 2 vinyls for 'Artist One' with 'Rock', got %d", len(filtered))
 		}
@@ -136,7 +136,7 @@ func TestFilterVinylUnique(t *testing.T) {
 		criteria := FilterCriteria{
 			Genres: []string{"Rock", "Electronic"},
 		}
-		filtered := FilterVinylUnique(vinyls, criteria, index)
+		filtered := FilterVinyl(vinyls, criteria, index)
 		if len(filtered) != 3 {
 			t.Errorf("expected 3 vinyls with 'Rock' OR 'Electronic', got %d", len(filtered))
 		}
@@ -146,7 +146,7 @@ func TestFilterVinylUnique(t *testing.T) {
 		criteria := FilterCriteria{
 			Styles: []string{"Alternative Rock"},
 		}
-		filtered := FilterVinylUnique(vinyls, criteria, index)
+		filtered := FilterVinyl(vinyls, criteria, index)
 		if len(filtered) != 1 {
 			t.Errorf("expected 1 vinyl with 'Alternative Rock' style, got %d", len(filtered))
 		}
@@ -154,7 +154,7 @@ func TestFilterVinylUnique(t *testing.T) {
 
 	t.Run("no filters returns all (sorted)", func(t *testing.T) {
 		criteria := FilterCriteria{}
-		filtered := FilterVinylUnique(vinyls, criteria, index)
+		filtered := FilterVinyl(vinyls, criteria, index)
 		if len(filtered) != 3 {
 			t.Errorf("expected 3 vinyls with no filters, got %d", len(filtered))
 		}
@@ -176,7 +176,7 @@ func TestFilterVinylUnique(t *testing.T) {
 		criteria := FilterCriteria{
 			Artist: "Nonexistent Artist",
 		}
-		filtered := FilterVinylUnique(vinyls, criteria, index)
+		filtered := FilterVinyl(vinyls, criteria, index)
 		if len(filtered) != 0 {
 			t.Errorf("expected 0 vinyls for nonexistent artist, got %d", len(filtered))
 		}
@@ -190,7 +190,7 @@ func TestFilterVinylWithPlayData(t *testing.T) {
 
 	vinyls := []VinylWithPlayData{
 		{
-			VinylUnique: VinylUnique{
+			VinylRecord: VinylRecord{
 				VinylID:           1,
 				VinylTitle:        "Album A",
 				VinylArtist:       "Artist One",
@@ -202,7 +202,7 @@ func TestFilterVinylWithPlayData(t *testing.T) {
 			LastPlayed:  &lastPlayed,
 		},
 		{
-			VinylUnique: VinylUnique{
+			VinylRecord: VinylRecord{
 				VinylID:           2,
 				VinylTitle:        "Album B",
 				VinylArtist:       "Artist Two",
@@ -215,7 +215,7 @@ func TestFilterVinylWithPlayData(t *testing.T) {
 		},
 	}
 
-	index := BuildVinylIndex([]VinylUnique{vinyls[0].VinylUnique, vinyls[1].VinylUnique})
+	index := BuildVinylIndex([]VinylRecord{vinyls[0].VinylRecord, vinyls[1].VinylRecord})
 
 	t.Run("filter with play data", func(t *testing.T) {
 		criteria := FilterCriteria{

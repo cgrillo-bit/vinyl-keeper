@@ -33,11 +33,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteVinylStmt, err = db.PrepareContext(ctx, deleteVinyl); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteVinyl: %w", err)
 	}
+	if q.ensureOwnershipPlayStmt, err = db.PrepareContext(ctx, ensureOwnershipPlay); err != nil {
+		return nil, fmt.Errorf("error preparing query EnsureOwnershipPlay: %w", err)
+	}
 	if q.getAllUserVinylPlaysStmt, err = db.PrepareContext(ctx, getAllUserVinylPlays); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllUserVinylPlays: %w", err)
 	}
-	if q.getAllVinylsStmt, err = db.PrepareContext(ctx, getAllVinyls); err != nil {
-		return nil, fmt.Errorf("error preparing query GetAllVinyls: %w", err)
+	if q.getAllVinylRecordsStmt, err = db.PrepareContext(ctx, getAllVinylRecords); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllVinylRecords: %w", err)
+	}
+	if q.getPrimaryReleaseIDStmt, err = db.PrepareContext(ctx, getPrimaryReleaseID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPrimaryReleaseID: %w", err)
 	}
 	if q.getUserByIDStmt, err = db.PrepareContext(ctx, getUserByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserByID: %w", err)
@@ -45,17 +51,23 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getUserVinylPlaysStmt, err = db.PrepareContext(ctx, getUserVinylPlays); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserVinylPlays: %w", err)
 	}
+	if q.getVinylRecordByIDStmt, err = db.PrepareContext(ctx, getVinylRecordByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetVinylRecordByID: %w", err)
+	}
+	if q.insertVinylPlayStmt, err = db.PrepareContext(ctx, insertVinylPlay); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertVinylPlay: %w", err)
+	}
 	if q.listUsersStmt, err = db.PrepareContext(ctx, listUsers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsers: %w", err)
 	}
-	if q.playVinylCollectionStmt, err = db.PrepareContext(ctx, playVinylCollection); err != nil {
-		return nil, fmt.Errorf("error preparing query PlayVinylCollection: %w", err)
+	if q.nextPlayNumberStmt, err = db.PrepareContext(ctx, nextPlayNumber); err != nil {
+		return nil, fmt.Errorf("error preparing query NextPlayNumber: %w", err)
 	}
-	if q.recordVinylCollectionStmt, err = db.PrepareContext(ctx, recordVinylCollection); err != nil {
-		return nil, fmt.Errorf("error preparing query RecordVinylCollection: %w", err)
+	if q.registerVinylUniqueStmt, err = db.PrepareContext(ctx, registerVinylUnique); err != nil {
+		return nil, fmt.Errorf("error preparing query RegisterVinylUnique: %w", err)
 	}
-	if q.registerVinylStmt, err = db.PrepareContext(ctx, registerVinyl); err != nil {
-		return nil, fmt.Errorf("error preparing query RegisterVinyl: %w", err)
+	if q.upsertVinylReleaseStmt, err = db.PrepareContext(ctx, upsertVinylRelease); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertVinylRelease: %w", err)
 	}
 	return &q, nil
 }
@@ -77,14 +89,24 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing deleteVinylStmt: %w", cerr)
 		}
 	}
+	if q.ensureOwnershipPlayStmt != nil {
+		if cerr := q.ensureOwnershipPlayStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing ensureOwnershipPlayStmt: %w", cerr)
+		}
+	}
 	if q.getAllUserVinylPlaysStmt != nil {
 		if cerr := q.getAllUserVinylPlaysStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAllUserVinylPlaysStmt: %w", cerr)
 		}
 	}
-	if q.getAllVinylsStmt != nil {
-		if cerr := q.getAllVinylsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getAllVinylsStmt: %w", cerr)
+	if q.getAllVinylRecordsStmt != nil {
+		if cerr := q.getAllVinylRecordsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllVinylRecordsStmt: %w", cerr)
+		}
+	}
+	if q.getPrimaryReleaseIDStmt != nil {
+		if cerr := q.getPrimaryReleaseIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPrimaryReleaseIDStmt: %w", cerr)
 		}
 	}
 	if q.getUserByIDStmt != nil {
@@ -97,24 +119,34 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getUserVinylPlaysStmt: %w", cerr)
 		}
 	}
+	if q.getVinylRecordByIDStmt != nil {
+		if cerr := q.getVinylRecordByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getVinylRecordByIDStmt: %w", cerr)
+		}
+	}
+	if q.insertVinylPlayStmt != nil {
+		if cerr := q.insertVinylPlayStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertVinylPlayStmt: %w", cerr)
+		}
+	}
 	if q.listUsersStmt != nil {
 		if cerr := q.listUsersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listUsersStmt: %w", cerr)
 		}
 	}
-	if q.playVinylCollectionStmt != nil {
-		if cerr := q.playVinylCollectionStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing playVinylCollectionStmt: %w", cerr)
+	if q.nextPlayNumberStmt != nil {
+		if cerr := q.nextPlayNumberStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing nextPlayNumberStmt: %w", cerr)
 		}
 	}
-	if q.recordVinylCollectionStmt != nil {
-		if cerr := q.recordVinylCollectionStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing recordVinylCollectionStmt: %w", cerr)
+	if q.registerVinylUniqueStmt != nil {
+		if cerr := q.registerVinylUniqueStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing registerVinylUniqueStmt: %w", cerr)
 		}
 	}
-	if q.registerVinylStmt != nil {
-		if cerr := q.registerVinylStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing registerVinylStmt: %w", cerr)
+	if q.upsertVinylReleaseStmt != nil {
+		if cerr := q.upsertVinylReleaseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertVinylReleaseStmt: %w", cerr)
 		}
 	}
 	return err
@@ -154,35 +186,43 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 }
 
 type Queries struct {
-	db                        DBTX
-	tx                        *sql.Tx
-	createUserStmt            *sql.Stmt
-	deleteUserStmt            *sql.Stmt
-	deleteVinylStmt           *sql.Stmt
-	getAllUserVinylPlaysStmt  *sql.Stmt
-	getAllVinylsStmt          *sql.Stmt
-	getUserByIDStmt           *sql.Stmt
-	getUserVinylPlaysStmt     *sql.Stmt
-	listUsersStmt             *sql.Stmt
-	playVinylCollectionStmt   *sql.Stmt
-	recordVinylCollectionStmt *sql.Stmt
-	registerVinylStmt         *sql.Stmt
+	db                       DBTX
+	tx                       *sql.Tx
+	createUserStmt           *sql.Stmt
+	deleteUserStmt           *sql.Stmt
+	deleteVinylStmt          *sql.Stmt
+	ensureOwnershipPlayStmt  *sql.Stmt
+	getAllUserVinylPlaysStmt *sql.Stmt
+	getAllVinylRecordsStmt   *sql.Stmt
+	getPrimaryReleaseIDStmt  *sql.Stmt
+	getUserByIDStmt          *sql.Stmt
+	getUserVinylPlaysStmt    *sql.Stmt
+	getVinylRecordByIDStmt   *sql.Stmt
+	insertVinylPlayStmt      *sql.Stmt
+	listUsersStmt            *sql.Stmt
+	nextPlayNumberStmt       *sql.Stmt
+	registerVinylUniqueStmt  *sql.Stmt
+	upsertVinylReleaseStmt   *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                        tx,
-		tx:                        tx,
-		createUserStmt:            q.createUserStmt,
-		deleteUserStmt:            q.deleteUserStmt,
-		deleteVinylStmt:           q.deleteVinylStmt,
-		getAllUserVinylPlaysStmt:  q.getAllUserVinylPlaysStmt,
-		getAllVinylsStmt:          q.getAllVinylsStmt,
-		getUserByIDStmt:           q.getUserByIDStmt,
-		getUserVinylPlaysStmt:     q.getUserVinylPlaysStmt,
-		listUsersStmt:             q.listUsersStmt,
-		playVinylCollectionStmt:   q.playVinylCollectionStmt,
-		recordVinylCollectionStmt: q.recordVinylCollectionStmt,
-		registerVinylStmt:         q.registerVinylStmt,
+		db:                       tx,
+		tx:                       tx,
+		createUserStmt:           q.createUserStmt,
+		deleteUserStmt:           q.deleteUserStmt,
+		deleteVinylStmt:          q.deleteVinylStmt,
+		ensureOwnershipPlayStmt:  q.ensureOwnershipPlayStmt,
+		getAllUserVinylPlaysStmt: q.getAllUserVinylPlaysStmt,
+		getAllVinylRecordsStmt:   q.getAllVinylRecordsStmt,
+		getPrimaryReleaseIDStmt:  q.getPrimaryReleaseIDStmt,
+		getUserByIDStmt:          q.getUserByIDStmt,
+		getUserVinylPlaysStmt:    q.getUserVinylPlaysStmt,
+		getVinylRecordByIDStmt:   q.getVinylRecordByIDStmt,
+		insertVinylPlayStmt:      q.insertVinylPlayStmt,
+		listUsersStmt:            q.listUsersStmt,
+		nextPlayNumberStmt:       q.nextPlayNumberStmt,
+		registerVinylUniqueStmt:  q.registerVinylUniqueStmt,
+		upsertVinylReleaseStmt:   q.upsertVinylReleaseStmt,
 	}
 }

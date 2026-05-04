@@ -6,8 +6,8 @@ import (
 	"time"
 	"github.com/ninesl/vinyl-keeper/app/router/assets/ui/components/button"
 	"github.com/ninesl/vinyl-keeper/app/router/assets/ui/components/card"
+	"github.com/ninesl/vinyl-keeper/app/router/types"
 	"github.com/ninesl/vinyl-keeper/app/router/values"
-	"github.com/ninesl/vinyl-keeper/app/vinyl"
 )
 
 func formatShortDate(dateStr string) string {
@@ -52,33 +52,36 @@ type VinylRender struct {
 	LastPlayed        *string
 }
 
-func NewAlbumVinylRender(v vinyl.VinylUnique) VinylRender {
+func NewAlbumVinylRender(v types.Vinyl) VinylRender {
 	return VinylRender{
-		VinylID:           v.VinylID,
-		VinylTitle:        v.VinylTitle,
-		VinylArtist:       v.VinylArtist,
-		VinylPressingYear: v.VinylPressingYear,
-		Genres:            v.Genres,
-		Styles:            v.Styles,
+		VinylID:           v.ID(),
+		VinylTitle:        v.Title(),
+		VinylArtist:       v.Artist(),
+		VinylPressingYear: v.Year(),
+		Genres:            v.Genres(),
+		Styles:            v.Styles(),
 	}
 }
 
-func NewMyVinylRender(v vinyl.VinylWithPlayData) VinylRender {
-	plays := v.Plays
+func NewMyVinylRender(v types.Vinyl) VinylRender {
+	plays := int64(0)
+	if v.NumPlays() != nil {
+		plays = *v.NumPlays()
+	}
 	return VinylRender{
-		VinylID:           v.VinylID,
-		VinylTitle:        v.VinylTitle,
-		VinylArtist:       v.VinylArtist,
-		VinylPressingYear: v.VinylPressingYear,
-		Genres:            v.Genres,
-		Styles:            v.Styles,
+		VinylID:           v.ID(),
+		VinylTitle:        v.Title(),
+		VinylArtist:       v.Artist(),
+		VinylPressingYear: v.Year(),
+		Genres:            v.Genres(),
+		Styles:            v.Styles(),
 		Plays:             &plays,
-		FirstPlayed:       v.FirstPlayed,
-		LastPlayed:        v.LastPlayed,
+		FirstPlayed:       v.DateAdded(),
+		LastPlayed:        v.LastPlayedDate(),
 	}
 }
 
-func NewScanAlbumVinylRender(v vinyl.VinylUnique, similarity float64) VinylRender {
+func NewScanAlbumVinylRender(v types.Vinyl, similarity float64) VinylRender {
 	r := NewAlbumVinylRender(v)
 	r.Similarity = &similarity
 	return r
@@ -242,7 +245,7 @@ templ EmptyState(message string) {
 	</div>
 }
 
-templ LowConfidenceChoiceCards(vinyls []vinyl.VinylUnique, similarities []float64) {
+templ LowConfidenceChoiceCards(vinyls []types.Vinyl, similarities []float64) {
 	<form
 		class="space-y-2"
 		hx-post={ values.EndpointSearch + values.EndpointHTMX }
@@ -261,7 +264,7 @@ templ LowConfidenceChoiceCards(vinyls []vinyl.VinylUnique, similarities []float6
 						class="peer sr-only"
 						type="radio"
 						name={ values.ParamVinylID }
-						value={ fmt.Sprintf("%d", v.VinylID) }
+						value={ fmt.Sprintf("%d", v.ID()) }
 						checked?={ i == 0 }
 					/>
 					<div class="w-full rounded-sm transition-shadow peer-checked:shadow-[0_0_0_2px_rgba(255,255,255,0.95),0_0_20px_rgba(255,255,255,0.75)] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-white peer-focus-visible:outline-offset-2">

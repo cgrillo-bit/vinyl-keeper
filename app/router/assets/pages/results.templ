@@ -2,15 +2,15 @@ package pages
 
 import (
 	"github.com/ninesl/vinyl-keeper/app/router/assets/ui/parts"
-	"github.com/ninesl/vinyl-keeper/app/vinyl"
+	"github.com/ninesl/vinyl-keeper/app/router/types"
 )
 
-templ ScanResultCard(v vinyl.VinylUnique, similarity float64) {
+templ ScanResultCard(v types.Vinyl, similarity float64) {
 	@parts.ConfidenceBadgeWrapper(similarity) {
 		@parts.VinylCard(parts.NewAlbumVinylRender(v))
 	}
 }
 
-templ LowConfidenceChoiceCards(vinyls []vinyl.VinylUnique, similarities []float64) {
+templ LowConfidenceChoiceCards(vinyls []types.Vinyl, similarities []float64) {
 	@parts.LowConfidenceChoiceCards(vinyls, similarities)
 }

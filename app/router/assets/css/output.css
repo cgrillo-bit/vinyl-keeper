@@ -809,6 +809,9 @@
   .cursor-pointer {
     cursor: pointer;
   }
+  .touch-none {
+    touch-action: none;
+  }
   .resize {
     resize: both;
   }
@@ -1617,6 +1620,10 @@
     transition-property: transform, translate, scale, rotate;
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
     transition-duration: var(--tw-duration, var(--default-transition-duration));
+  }
+  .duration-150 {
+    --tw-duration: 150ms;
+    transition-duration: 150ms;
   }
   .duration-200 {
     --tw-duration: 200ms;
@@ -2450,6 +2457,11 @@
       scale: var(--tw-scale-x) var(--tw-scale-y);
     }
   }
+  .active\:cursor-grabbing {
+    &:active {
+      cursor: grabbing;
+    }
+  }
   .disabled\:pointer-events-none {
     &:disabled {
       pointer-events: none;
@@ -2693,6 +2705,16 @@
       transition-duration: 500ms;
     }
   }
+  .data-\[tui-popover-open\=false\]\:opacity-0 {
+    &[data-tui-popover-open="false"] {
+      opacity: 0%;
+    }
+  }
+  .data-\[tui-popover-open\=true\]\:opacity-100 {
+    &[data-tui-popover-open="true"] {
+      opacity: 100%;
+    }
+  }
   .data-\[tui-selectbox-selected\=true\]\:bg-accent {
     &[data-tui-selectbox-selected="true"] {
       background-color: var(--accent);
@@ -2834,6 +2856,11 @@
   .data-\[variant\=warning\]\:bg-yellow-500 {
     &[data-variant="warning"] {
       background-color: var(--color-yellow-500);
+    }
+  }
+  .motion-reduce\:transition-none {
+    @media (prefers-reduced-motion: reduce) {
+      transition-property: none;
     }
   }
   .sm\:\!max-w-sm {

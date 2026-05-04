@@ -138,7 +138,7 @@ func SignInDeleteUserHandler(k UserDeleterLister) http.HandlerFunc {
 		}
 
 		userID, err := strconv.ParseInt(userIDStr, 10, 64)
-		if err != nil || userID <= 0 {
+		if err != nil || userID < 0 {
 			w.WriteHeader(http.StatusBadRequest)
 			parts.ErrorMessage("Invalid user ID").Render(r.Context(), w)
 			return
@@ -184,7 +184,7 @@ func SignInSubmitHandler(k UserGetter) http.HandlerFunc {
 		}
 
 		userID, err := strconv.ParseInt(userIDStr, 10, 64)
-		if err != nil || userID <= 0 {
+		if err != nil || userID < 0 {
 			w.WriteHeader(http.StatusBadRequest)
 			parts.ErrorMessage("Invalid user ID").Render(r.Context(), w)
 			return
