@@ -6,9 +6,10 @@ import (
 )
 
 templ ScanResultCard(v types.Vinyl, similarity float64) {
-	@parts.ConfidenceBadgeWrapper(similarity) {
-		@parts.VinylCard(parts.NewAlbumVinylRender(v))
-	}
+	@parts.VinylViewCard(v, types.ModeScanCandidate, types.VinylViewOpts{
+		SimilarityPercent: similarity,
+		ShowConfidence:    true,
+	})
 }
 
 templ LowConfidenceChoiceCards(vinyls []types.Vinyl, similarities []float64) {

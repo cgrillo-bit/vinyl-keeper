@@ -3,7 +3,6 @@ package values
 // Endpoint constants for HTTP routes
 const (
 	EndpointHealth         = "/health"
-	EndpointAlbums         = "/albums"
 	EndpointMyVinyl        = "/myvinyl"
 	EndpointSearch         = "/search"
 	EndpointCover          = "/cover"

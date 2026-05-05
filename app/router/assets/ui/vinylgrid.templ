@@ -14,25 +14,12 @@ import (
 	"github.com/ninesl/vinyl-keeper/app/vinyl"
 )
 
-// AlbumsGrid renders the grid of album cards
-templ AlbumsGrid(vinyls []types.Vinyl) {
-	<div class="mx-auto grid max-w-7xl grid-cols-2 gap-2">
-		if len(vinyls) > 0 {
-			for _, v := range vinyls {
-				@parts.VinylCard(parts.NewAlbumVinylRender(v))
-			}
-		} else {
-			@parts.EmptyState("No albums match your filters")
-		}
-	</div>
-}
-
 // MyVinylGrid renders the grid of vinyl with play data
 templ MyVinylGrid(vinyls []types.Vinyl) {
 	<div class="mx-auto grid max-w-7xl grid-cols-2 gap-2">
 		if len(vinyls) > 0 {
 			for _, v := range vinyls {
-				@parts.VinylCard(parts.NewMyVinylRender(v))
+				@parts.VinylViewCard(v, types.ModeMyAlbum, types.VinylViewOpts{})
 			}
 		} else {
 			@parts.EmptyState("No vinyl match your filters")
@@ -98,7 +85,7 @@ templ FilterCheckboxDropdown(labelText string, scopeID string, kind string, endp
 	</div>
 }
 
-// FilterControls renders the filter UI for both albums and myvinyl pages.
+// FilterControls renders the filter UI for the my collection panel.
 templ FilterControls(endpoint string, index *vinyl.VinylIndex, scopeID string, targetID string, artistFilterID string) {
 	<div class="mx-auto mb-6 max-w-7xl rounded-lg border bg-card p-4">
 		@tabs.Tabs(tabs.Props{ID: scopeID + "-filter-tabs"}) {

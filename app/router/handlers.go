@@ -110,22 +110,6 @@ func setUserCookie(w http.ResponseWriter, userID int64) {
 	})
 }
 
-func AlbumsFilterHandler(
-	getAllVinyls func() []vinyl.VinylRecord,
-	getIndex func() *vinyl.VinylIndex,
-) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", values.ContentTypeHTML)
-
-		criteria := parseFilterCriteria(r)
-		vinyls := getAllVinyls()
-		index := getIndex()
-
-		filtered := vinyl.FilterVinyl(vinyls, criteria, index)
-		ui.AlbumsGrid(toVinylViews(filtered)).Render(r.Context(), w)
-	}
-}
-
 func MyVinylFilterHandler(
 	getMyVinyl func(userID int64) []vinyl.VinylWithPlayData,
 	getIndex func() *vinyl.VinylIndex,
@@ -641,14 +625,6 @@ func HandleServeAlbumImage(params ServeAlbumImageHandlerParams) http.HandlerFunc
 
 		w.Write(vinyl.CoverRawBlob)
 	}
-}
-
-func toVinylViews(vinyls []vinyl.VinylRecord) []routertypes.Vinyl {
-	views := make([]routertypes.Vinyl, 0, len(vinyls))
-	for _, v := range vinyls {
-		views = append(views, routertypes.FromVinylRecord(v))
-	}
-	return views
 }
 
 func toMyVinylViews(vinyls []vinyl.VinylWithPlayData) []routertypes.Vinyl {

@@ -225,11 +225,6 @@ func main() {
 		values.EndpointNavAuthButtons,
 		router.NavAuthButtonsHandler())
 
-	// Album filtering routes
-	r.Route(http.MethodGet,
-		values.EndpointAlbums+values.EndpointFilter,
-		router.AlbumsFilterHandler(keeper.AllVinyl, keeper.GetVinylIndex))
-
 	r.Route(http.MethodGet,
 		values.EndpointMyVinyl+values.EndpointFilter,
 		router.MyVinylFilterHandler(keeper.MyVinyl, keeper.GetVinylIndex, router.GetUserID))

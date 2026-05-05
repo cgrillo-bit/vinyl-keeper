@@ -29,7 +29,9 @@ type Vinyl interface {
 	BlobImageURL() string
 	ThumbImageURL() *string
 	HasBlob() bool
-	PressingLabel() *string
+	Label() string
+	ReleaseFormat() string
+	ReleaseCountry() string
 	Notes() *string
 }
 
@@ -81,30 +83,6 @@ func FromReleaseCandidate(v vinyl.ReleaseCandidate) VinylView {
 	}
 }
 
-func composePressingLabel(label, releaseFormat, country *string) *string {
-	parts := make([]string, 0, 3)
-	if label != nil {
-		if v := strings.TrimSpace(*label); v != "" {
-			parts = append(parts, v)
-		}
-	}
-	if releaseFormat != nil {
-		if v := strings.TrimSpace(*releaseFormat); v != "" {
-			parts = append(parts, v)
-		}
-	}
-	if country != nil {
-		if v := strings.TrimSpace(*country); v != "" {
-			parts = append(parts, v)
-		}
-	}
-	if len(parts) == 0 {
-		return nil
-	}
-	joined := strings.Join(parts, " / ")
-	return &joined
-}
-
 func (v VinylView) ID() int64        { return v.Record.VinylID }
 func (v VinylView) ReleaseID() int64 { return v.ReleaseIDVal }
 func (v VinylView) Title() string    { return v.Record.VinylTitle }
@@ -146,7 +124,22 @@ func (v VinylView) ThumbImageURL() *string {
 	return nil
 }
 func (v VinylView) HasBlob() bool { return v.HasBlobVal || v.ReleaseIDVal == 0 }
-func (v VinylView) PressingLabel() *string {
-	return composePressingLabel(v.LabelVal, v.ReleaseFormatVal, v.Country())
+func (v VinylView) Label() string {
+	if v.LabelVal == nil {
+		return ""
+	}
+	return strings.TrimSpace(*v.LabelVal)
+}
+func (v VinylView) ReleaseFormat() string {
+	if v.ReleaseFormatVal == nil {
+		return ""
+	}
+	return strings.TrimSpace(*v.ReleaseFormatVal)
+}
+func (v VinylView) ReleaseCountry() string {
+	if v.ReleaseCountryVal == nil {
+		return ""
+	}
+	return strings.TrimSpace(*v.ReleaseCountryVal)
 }
 func (v VinylView) Notes() *string { return v.NotesVal }
