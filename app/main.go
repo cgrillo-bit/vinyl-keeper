@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -244,32 +245,19 @@ func main() {
 	r.Route(http.MethodPost,
 		values.EndpointRegister+values.EndpointSubmit,
 		router.RegisterSubmitHandler(router.RegisterHandlerParams{
-			RegisterVinyl: func(artist, album string) (vinyl.VinylRecord, error) {
-				if masterID, resolveErr := FindDiscogsMasterID(album, artist); resolveErr == nil && masterID > 0 {
-					mid := int64(masterID)
-					if existing := keeper.FindExistingVinyl("", "", &mid); existing != nil {
-						return *existing, nil
-					}
-				}
-				params, err := RegisterUniqueVinylAlbumArtist(album, artist)
+			RegisterVinyl: func(ctx context.Context, artist, album string, userID int64) (vinyl.VinylRecord, error) {
+				masterID, err := FindDiscogsMasterID(album, artist)
 				if err != nil {
 					return vinyl.VinylRecord{}, err
 				}
-				return keeper.RegisterVinylUnique(params)
+				return keeper.RegisterVinylFromMaster(ctx, masterID, userID)
 			},
-			RegisterVinylID: func(masterID int) (vinyl.VinylRecord, error) {
-				mid := int64(masterID)
-				if existing := keeper.FindExistingVinyl("", "", &mid); existing != nil {
-					return *existing, nil
-				}
-				params, err := RegisterUniqueVinylMasterID(masterID)
-				if err != nil {
-					return vinyl.VinylRecord{}, err
-				}
-				return keeper.RegisterVinylUnique(params)
+			RegisterVinylID: func(ctx context.Context, masterID int, userID int64) (vinyl.VinylRecord, error) {
+				return keeper.RegisterVinylFromMaster(ctx, masterID, userID)
 			},
 			FindExistingVinyl:   keeper.FindExistingVinyl,
 			GetPrimaryReleaseID: keeper.GetPrimaryReleaseID,
+			GetUserID:           router.GetUserID,
 		}))
 
 	// Delete vinyl (HTMX endpoint) — triggers vinyl-registered on success

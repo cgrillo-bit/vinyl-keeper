@@ -70,6 +70,7 @@ func recordDiscogsRequestResult(success bool) {
 
 type Keeper interface {
 	RegisterVinylUnique(args RegisterVinylParams) (vinyl.VinylRecord, error)
+	RegisterVinylFromMaster(ctx context.Context, masterID int, userID int64) (vinyl.VinylRecord, error)
 
 	KeepRecord(vinylID, userID int64) error // makes an entry for the record, returns an error if exists already
 	PlayRecord(vinylID, userID int64) error // ++ to the numPlays of the vinylID, saves the record if not already logged
@@ -365,6 +366,161 @@ func (k *keeper) RegisterVinylUnique(args RegisterVinylParams) (vinyl.VinylRecor
 	k.mu.Unlock()
 
 	return vinylRecord, nil
+}
+
+func (k *keeper) RegisterVinylFromMaster(ctx context.Context, masterID int, userID int64) (vinyl.VinylRecord, error) {
+	if masterID <= 0 {
+		return vinyl.VinylRecord{}, fmt.Errorf("invalid master_id=%d", masterID)
+	}
+	if userID < 0 {
+		return vinyl.VinylRecord{}, fmt.Errorf("invalid user_id=%d", userID)
+	}
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	master, err := fetchDiscogsMaster(masterID, httpClient)
+	if err != nil {
+		return vinyl.VinylRecord{}, err
+	}
+
+	versions, err := fetchAllVinylVersions(masterID, httpClient)
+	if err != nil {
+		return vinyl.VinylRecord{}, err
+	}
+	if len(versions) == 0 {
+		return vinyl.VinylRecord{}, fmt.Errorf("master %d returned no vinyl versions", masterID)
+	}
+
+	primaryReleaseID := versions[0].ID
+	payload, _, err := buildMainReleasePayload(masterID, primaryReleaseID, httpClient)
+	if err != nil {
+		return vinyl.VinylRecord{}, err
+	}
+
+	masterID64 := int64(masterID)
+	params := RegisterVinylParams{
+		VinylTitle:     strings.TrimSpace(master.Title),
+		VinylArtist:    discogsMasterArtistString(master),
+		MasterID:       &masterID64,
+		Styles:         stringPtrIfNonEmpty(strings.Join(master.Styles, ",")),
+		Genres:         stringPtrIfNonEmpty(strings.Join(master.Genres, ",")),
+		ReleaseID:      int64(primaryReleaseID),
+		Released:       payload.Released,
+		MasterRelease:  1,
+		ResourceURI:    payload.ResourceURI,
+		ImageExtension: payload.ImageExtension,
+		CoverRawBlob:   payload.RawCoverData,
+		CoverEmbedding: payload.CoverEmbedding,
+		RecentPrice:    payload.LowestPrice,
+		Country:        stringPtrIfNonEmpty(payload.Country),
+		Notes:          payload.Notes,
+	}
+
+	return k.registerVinylWithVersionsAndOwnership(ctx, params, versions, userID)
+}
+
+func (k *keeper) registerVinylWithVersionsAndOwnership(ctx context.Context, args RegisterVinylParams, versions []discogsMasterVersion, userID int64) (vinyl.VinylRecord, error) {
+	tx, err := k.db.BeginTx(ctx, nil)
+	if err != nil {
+		return vinyl.VinylRecord{}, err
+	}
+	defer tx.Rollback()
+
+	uniqueRow := tx.QueryRowContext(ctx, `
+		INSERT INTO vinyl_unique(vinyl_title, vinyl_artist, master_id, styles, genres)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT DO UPDATE SET vinyl_title = vinyl_title
+		RETURNING vinyl_id, vinyl_title, vinyl_artist, master_id, styles, genres
+	`, args.VinylTitle, args.VinylArtist, args.MasterID, args.Styles, args.Genres)
+
+	var unique vinyl.VinylUnique
+	if err := uniqueRow.Scan(&unique.VinylID, &unique.VinylTitle, &unique.VinylArtist, &unique.MasterID, &unique.Styles, &unique.Genres); err != nil {
+		return vinyl.VinylRecord{}, err
+	}
+
+	for _, v := range versions {
+		year := versionReleasedYear(v)
+		if v.ID <= 0 {
+			return vinyl.VinylRecord{}, fmt.Errorf("invalid release_id=%d", v.ID)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO vinyl_releases_check(vinyl_id, release_id, label, country, release_format, released_year, cover_uri)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(vinyl_id, release_id) DO UPDATE SET
+				label = excluded.label,
+				country = excluded.country,
+				release_format = excluded.release_format,
+				released_year = excluded.released_year,
+				cover_uri = excluded.cover_uri
+		`, unique.VinylID, v.ID, strings.TrimSpace(v.Label), strings.TrimSpace(v.Country), strings.TrimSpace(v.Format), year, strings.TrimSpace(v.Thumb)); err != nil {
+			return vinyl.VinylRecord{}, fmt.Errorf("upsert vinyl_releases_check release_id=%d: %w", v.ID, err)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE vinyl_release
+		SET master_release = 0
+		WHERE vinyl_id = ? AND release_id <> ?
+	`, unique.VinylID, args.ReleaseID); err != nil {
+		return vinyl.VinylRecord{}, fmt.Errorf("clear existing master_release flag: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO vinyl_release(
+			vinyl_id, release_id, lowest_price, price_last_updated, country, notes, released,
+			master_release, resource_uri, image_extension, cover_raw_blob, cover_embedding
+		) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+		ON CONFLICT(vinyl_id, release_id) DO UPDATE SET
+			lowest_price = excluded.lowest_price,
+			price_last_updated = excluded.price_last_updated,
+			country = excluded.country,
+			notes = excluded.notes,
+			released = excluded.released,
+			master_release = 1,
+			resource_uri = excluded.resource_uri,
+			image_extension = excluded.image_extension,
+			cover_raw_blob = excluded.cover_raw_blob,
+			cover_embedding = excluded.cover_embedding
+	`, unique.VinylID, args.ReleaseID, args.RecentPrice, ptrDateToday(), args.Country, args.Notes, args.Released, args.ResourceURI, args.ImageExtension, args.CoverRawBlob, args.CoverEmbedding); err != nil {
+		return vinyl.VinylRecord{}, fmt.Errorf("upsert primary vinyl_release: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO vinyl_plays(user_id, vinyl_id, release_id, play, played_date)
+		VALUES (?, ?, ?, 0, ?)
+	`, userID, unique.VinylID, args.ReleaseID, time.Now().Format("2006-01-02")); err != nil {
+		return vinyl.VinylRecord{}, fmt.Errorf("insert ownership play: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return vinyl.VinylRecord{}, err
+	}
+
+	row, err := k.queries.GetVinylRecordByID(ctx, unique.VinylID)
+	if err != nil {
+		return vinyl.VinylRecord{}, err
+	}
+	record := mapVinylRecord(row)
+
+	emb, err := EmbeddingFromBlob(record.CoverEmbedding)
+	if err != nil {
+		log.Printf("[Keeper] warning: failed to decode embedding for vinyl %d after register: %v", record.VinylID, err)
+	}
+
+	k.mu.Lock()
+	k.vinylLookup[record.VinylID] = record
+	if err == nil {
+		k.embeddingLookup[record.VinylID] = emb
+	}
+	if k.userNumPlays[userID] == nil {
+		k.userNumPlays[userID] = make(map[int64]int)
+	}
+	if _, ok := k.userNumPlays[userID][record.VinylID]; !ok {
+		k.userNumPlays[userID][record.VinylID] = 0
+	}
+	k.needsRebuild = true
+	k.mu.Unlock()
+
+	return record, nil
 }
 
 func (k *keeper) GetPrimaryReleaseID(vinylID int64) (int64, error) {
@@ -671,6 +827,17 @@ func requestMasterDiscogs(masterID int) (discogsResp, error) {
 		genres:       genresStr,
 		styles:       stylesStr,
 	}, nil
+}
+
+func discogsMasterArtistString(master discogsMasterResp) string {
+	artistNames := make([]string, 0, len(master.Artists))
+	for _, a := range master.Artists {
+		name := strings.TrimSpace(a.Name)
+		if name != "" {
+			artistNames = append(artistNames, name)
+		}
+	}
+	return strings.Join(artistNames, ",")
 }
 
 func RegisterUniqueVinylMasterID(masterID int) (RegisterVinylParams, error) {

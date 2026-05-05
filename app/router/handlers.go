@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -456,10 +457,11 @@ func embeddingFromBlob(b []byte) (Embedding, error) {
 }
 
 type RegisterHandlerParams struct {
-	RegisterVinyl       func(artist, album string) (vinyl.VinylRecord, error)
-	RegisterVinylID     func(masterID int) (vinyl.VinylRecord, error)
+	RegisterVinyl       func(ctx context.Context, artist, album string, userID int64) (vinyl.VinylRecord, error)
+	RegisterVinylID     func(ctx context.Context, masterID int, userID int64) (vinyl.VinylRecord, error)
 	FindExistingVinyl   func(artist, album string, masterID *int64) *vinyl.VinylRecord
 	GetPrimaryReleaseID func(vinylID int64) (int64, error)
+	GetUserID           func(*http.Request) int64
 }
 
 type RegisterResult struct {
@@ -471,11 +473,17 @@ type RegisterResult struct {
 func RegisterSubmitHandler(params RegisterHandlerParams) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", values.ContentTypeHTML)
+		userID := params.GetUserID(r)
+		if userID < 0 {
+			w.WriteHeader(http.StatusUnauthorized)
+			parts.ErrorMessage("must be signed in to register vinyl").Render(r.Context(), w)
+			return
+		}
 
 		var (
-			artist         = r.FormValue(values.QueryArtist)
-			album          = r.FormValue(values.QueryAlbum)
-			masterID       = r.FormValue(values.QueryMasterID)
+			artist         = strings.TrimSpace(r.FormValue(values.QueryArtist))
+			album          = strings.TrimSpace(r.FormValue(values.QueryAlbum))
+			masterID       = strings.TrimSpace(r.FormValue(values.QueryMasterID))
 			nameSearch     = artist != "" && album != ""
 			masterIDSearch = masterID != ""
 			vinylUnique    vinyl.VinylRecord
@@ -487,7 +495,7 @@ func RegisterSubmitHandler(params RegisterHandlerParams) http.HandlerFunc {
 			parts.ErrorMessage("need to have either artist/album OR master ID, not both").Render(r.Context(), w)
 			return
 		} else if nameSearch {
-			vinylUnique, err = params.RegisterVinyl(artist, album)
+			vinylUnique, err = params.RegisterVinyl(r.Context(), artist, album, userID)
 			if err != nil {
 				fmt.Printf("[Register] album/artist registration failed artist=%q album=%q err=%v\n", artist, album, err)
 				parts.ErrorMessage("No album found").Render(r.Context(), w)
@@ -496,20 +504,12 @@ func RegisterSubmitHandler(params RegisterHandlerParams) http.HandlerFunc {
 
 		} else if masterIDSearch {
 			id, err := strconv.Atoi(masterID)
-			if err != nil {
+			if err != nil || id <= 0 {
 				parts.ErrorMessage("No album found").Render(r.Context(), w)
 				return
 			}
 
-			if params.FindExistingVinyl != nil {
-				mid := int64(id)
-				if existing := params.FindExistingVinyl("", "", &mid); existing != nil {
-					renderRegisterResult(w, r, params, *existing)
-					return
-				}
-			}
-
-			vinylUnique, err = params.RegisterVinylID(id)
+			vinylUnique, err = params.RegisterVinylID(r.Context(), id, userID)
 			if err != nil {
 				fmt.Printf("[Register] master registration failed master_id=%d err=%v\n", id, err)
 				parts.ErrorMessage("No album found").Render(r.Context(), w)
