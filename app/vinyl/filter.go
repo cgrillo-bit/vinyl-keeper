@@ -55,9 +55,33 @@ func (v VinylRecord) CoverEmbeddingValue() []byte {
 // VinylWithPlayData combines vinyl record data with user play statistics.
 type VinylWithPlayData struct {
 	VinylRecord
-	Plays       int64
-	FirstPlayed *string
-	LastPlayed  *string
+	Plays          int64
+	FirstPlayed    *string
+	LastPlayed     *string
+	ReleaseID      int64
+	ReleaseFormat  *string
+	ReleaseCountry *string
+	Label          *string
+	CoverURI       *string
+	HasBlob        bool
+	Notes          *string
+}
+
+type ReleaseCandidate struct {
+	VinylRecord
+	ReleaseID      int64
+	ReleaseFormat  *string
+	ReleaseCountry *string
+	Label          *string
+	CoverURI       *string
+	HasBlob        bool
+	Notes          *string
+	Similarity     float64
+}
+
+type ReleaseOption struct {
+	ReleaseCandidate
+	IsCurrent bool
 }
 
 // VinylIndex holds precomputed lookup maps for efficient filtering

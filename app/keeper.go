@@ -113,6 +113,46 @@ type keeper struct {
 	mu sync.RWMutex
 }
 
+type releaseScanRow struct {
+	VinylID           int64
+	VinylTitle        string
+	VinylArtist       string
+	MasterID          sql.NullInt64
+	Styles            sql.NullString
+	Genres            sql.NullString
+	VinylPressingYear sql.NullInt64
+	Country           sql.NullString
+	Released          string
+	RecentPrice       sql.NullFloat64
+	ImageExtension    string
+	CoverEmbedding    []byte
+	ReleaseID         int64
+	Label             sql.NullString
+	ReleaseFormat     sql.NullString
+	ReleaseCountry    sql.NullString
+	CoverURI          sql.NullString
+	HasBlob           int64
+	Notes             sql.NullString
+}
+
+type myVinylRow struct {
+	VinylID           int64
+	Plays             int64
+	FirstPlayed       string
+	LastPlayed        string
+	ReleaseID         int64
+	VinylPressingYear sql.NullInt64
+	ReleaseCountry    sql.NullString
+	Released          sql.NullString
+	ImageExtension    sql.NullString
+	RecentPrice       sql.NullFloat64
+	Label             sql.NullString
+	ReleaseFormat     sql.NullString
+	CoverURI          sql.NullString
+	HasBlob           int64
+	Notes             sql.NullString
+}
+
 func NewKeeper() (Keeper, error) {
 	k := &keeper{}
 	err := k.initKeeper(context.Background())
@@ -130,30 +170,116 @@ func (k *keeper) AllVinyl() []vinyl.VinylRecord {
 }
 
 func (k *keeper) MyVinyl(userID int64) []vinyl.VinylWithPlayData {
-	userPlays, err := k.queries.GetUserVinylPlays(k.ctx, userID)
+	rows, err := k.db.QueryContext(k.ctx, `
+		WITH plays AS (
+			SELECT
+				vp.user_id,
+				vp.vinyl_id,
+				CAST(SUM(CASE WHEN vp.play >= 1 THEN 1 ELSE 0 END) AS INTEGER) AS plays,
+				CAST(MIN(vp.played_date) AS TEXT) AS first_played,
+				CAST(MAX(vp.played_date) AS TEXT) AS last_played,
+				(
+					SELECT vp2.release_id
+					FROM vinyl_plays vp2
+					WHERE vp2.user_id = vp.user_id
+					  AND vp2.vinyl_id = vp.vinyl_id
+					ORDER BY vp2.played_date DESC, vp2.play DESC
+					LIMIT 1
+				) AS release_id
+			FROM vinyl_plays vp
+			WHERE vp.user_id = ?
+			GROUP BY vp.user_id, vp.vinyl_id
+		)
+		SELECT
+			p.vinyl_id,
+			p.plays,
+			p.first_played,
+			p.last_played,
+			p.release_id,
+			COALESCE(vrc.released_year, CAST(substr(vr.released, 1, 4) AS INTEGER)) AS vinyl_pressing_year,
+			COALESCE(NULLIF(vrc.country, ''), vr.country) AS release_country,
+			vr.released,
+			vr.image_extension,
+			vr.lowest_price,
+			vrc.label,
+			vrc.release_format,
+			vrc.cover_uri,
+			CASE WHEN length(vr.cover_raw_blob) > 0 THEN 1 ELSE 0 END AS has_blob,
+			vr.notes
+		FROM plays p
+		JOIN vinyl_release vr
+		  ON vr.vinyl_id = p.vinyl_id
+		 AND vr.release_id = p.release_id
+		LEFT JOIN vinyl_releases_check vrc
+		  ON vrc.vinyl_id = p.vinyl_id
+		 AND vrc.release_id = p.release_id
+		ORDER BY p.last_played DESC
+	`, userID)
 	if err != nil {
-		log.Printf("[Keeper] failed to fetch user vinyl plays for user %d: %v", userID, err)
+		log.Printf("[Keeper] failed to fetch user vinyl rows for user %d: %v", userID, err)
 		return []vinyl.VinylWithPlayData{}
 	}
+	defer rows.Close()
 
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 
-	result := make([]vinyl.VinylWithPlayData, 0, len(userPlays))
-	for _, play := range userPlays {
-		vinylUnique, ok := k.vinylLookup[play.VinylID]
-		if !ok {
-			log.Printf("[Keeper] data consistency warning: vinyl_id %d found in vinyl_plays but not in vinylLookup", play.VinylID)
+	result := make([]vinyl.VinylWithPlayData, 0)
+	for rows.Next() {
+		var row myVinylRow
+		if err := rows.Scan(
+			&row.VinylID,
+			&row.Plays,
+			&row.FirstPlayed,
+			&row.LastPlayed,
+			&row.ReleaseID,
+			&row.VinylPressingYear,
+			&row.ReleaseCountry,
+			&row.Released,
+			&row.ImageExtension,
+			&row.RecentPrice,
+			&row.Label,
+			&row.ReleaseFormat,
+			&row.CoverURI,
+			&row.HasBlob,
+			&row.Notes,
+		); err != nil {
+			log.Printf("[Keeper] failed scanning user vinyl row for user %d: %v", userID, err)
 			continue
 		}
-		firstPlayed := stringPtrIfNonEmpty(play.FirstPlayed)
-		lastPlayed := stringPtrIfNonEmpty(play.LastPlayed)
+
+		vinylUnique, ok := k.vinylLookup[row.VinylID]
+		if !ok {
+			log.Printf("[Keeper] data consistency warning: vinyl_id %d found in vinyl_plays but not in vinylLookup", row.VinylID)
+			continue
+		}
+
+		if row.Released.Valid {
+			vinylUnique.Released = row.Released.String
+		}
+		if row.ImageExtension.Valid {
+			vinylUnique.ImageExtension = row.ImageExtension.String
+		}
+		vinylUnique.RecentPrice = nullableFloat64(row.RecentPrice)
+
+		firstPlayed := stringPtrIfNonEmpty(row.FirstPlayed)
+		lastPlayed := stringPtrIfNonEmpty(row.LastPlayed)
 		result = append(result, vinyl.VinylWithPlayData{
-			VinylRecord: vinylUnique,
-			Plays:       play.Plays,
-			FirstPlayed: firstPlayed,
-			LastPlayed:  lastPlayed,
+			VinylRecord:    vinylUnique,
+			Plays:          row.Plays,
+			FirstPlayed:    firstPlayed,
+			LastPlayed:     lastPlayed,
+			ReleaseID:      row.ReleaseID,
+			ReleaseFormat:  nullableString(row.ReleaseFormat),
+			ReleaseCountry: nullableString(row.ReleaseCountry),
+			Label:          nullableString(row.Label),
+			CoverURI:       nullableString(row.CoverURI),
+			HasBlob:        row.HasBlob == 1,
+			Notes:          nullableString(row.Notes),
 		})
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[Keeper] failed iterating user vinyl rows for user %d: %v", userID, err)
 	}
 
 	return result
@@ -221,17 +347,89 @@ func (k *keeper) RegisterVinylUnique(args RegisterVinylParams) (vinyl.VinylRecor
 	// Decode embedding from the returned vinyl record
 	emb, err := EmbeddingFromBlob(vinylRecord.CoverEmbedding)
 	if err != nil {
-		return vinyl.VinylRecord{}, fmt.Errorf("failed to decode embedding for vinyl %d: %w", vinylRecord.VinylID, err)
+		log.Printf("[Keeper] warning: failed to decode embedding for vinyl %d from DB row: %v", vinylRecord.VinylID, err)
+		emb, err = EmbeddingFromBlob(args.CoverEmbedding)
+		if err != nil {
+			log.Printf("[Keeper] warning: failed to decode fallback embedding for vinyl %d: %v", vinylRecord.VinylID, err)
+			emb = nil
+		}
 	}
 
 	// Update in-memory caches with proper locking
 	k.mu.Lock()
 	k.vinylLookup[vinylRecord.VinylID] = vinylRecord
-	k.embeddingLookup[vinylRecord.VinylID] = emb
+	if emb != nil {
+		k.embeddingLookup[vinylRecord.VinylID] = emb
+	}
 	k.needsRebuild = true // Mark index for rebuild
 	k.mu.Unlock()
 
 	return vinylRecord, nil
+}
+
+func (k *keeper) GetPrimaryReleaseID(vinylID int64) (int64, error) {
+	return k.queries.GetPrimaryReleaseID(k.ctx, vinylID)
+}
+
+func (k *keeper) FindExistingVinyl(artist, album string, masterID *int64) *vinyl.VinylRecord {
+	if masterID != nil {
+		v, err := k.findExistingVinylByMasterID(*masterID)
+		if err != nil {
+			log.Printf("[Keeper] find existing vinyl by master_id=%d failed: %v", *masterID, err)
+			return nil
+		}
+		if v != nil {
+			return v
+		}
+	}
+
+	rows := k.AllVinyl()
+	if masterID != nil {
+		for i := range rows {
+			if rows[i].MasterID != nil && *rows[i].MasterID == *masterID {
+				v := rows[i]
+				return &v
+			}
+		}
+	}
+
+	artist = strings.TrimSpace(artist)
+	album = strings.TrimSpace(album)
+	if artist == "" || album == "" {
+		return nil
+	}
+
+	for i := range rows {
+		if strings.EqualFold(strings.TrimSpace(rows[i].VinylArtist), artist) && strings.EqualFold(strings.TrimSpace(rows[i].VinylTitle), album) {
+			v := rows[i]
+			return &v
+		}
+	}
+
+	return nil
+}
+
+func (k *keeper) findExistingVinylByMasterID(masterID int64) (*vinyl.VinylRecord, error) {
+	var vinylID int64
+	err := k.db.QueryRowContext(k.ctx, `
+		SELECT vu.vinyl_id
+		FROM vinyl_unique vu
+		JOIN vinyl_release vr ON vr.vinyl_id = vu.vinyl_id AND vr.master_release = 1
+		WHERE vu.master_id = ?
+		LIMIT 1
+	`, masterID).Scan(&vinylID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	v := k.GetVinyl(vinylID)
+	if v == nil {
+		return nil, nil
+	}
+	return v, nil
 }
 
 // needs to impl finding the extension. this abstraction helps with making the consumer API have optional ways to get images
@@ -287,15 +485,11 @@ type discogsMasterResp struct {
 // will only really work for an album and not 45s, live albums (without saying very specific terms)
 // eventually we will need multiple []discogsResp of the releases
 // we can then maybe determine pressing, etc off that? Not there yet regardless
-func requestDiscogs(albumTitle, artist string) (discogsResp, error) {
+func resolveDiscogsMasterIDs(albumTitle, artist string, httpClient *http.Client) ([]int, error) {
 	albumTitle = strings.TrimSpace(albumTitle)
 	artist = strings.TrimSpace(artist)
 	if albumTitle == "" || artist == "" {
-		return discogsResp{}, fmt.Errorf("must provide strings for both albumTitle and artist")
-	}
-
-	httpClient := http.Client{
-		Timeout: time.Second * 10,
+		return nil, fmt.Errorf("must provide strings for both albumTitle and artist")
 	}
 
 	format := "&format=album"
@@ -308,22 +502,22 @@ func requestDiscogs(albumTitle, artist string) (discogsResp, error) {
 	log.Printf("[Discogs] GET %s", searchURL)
 	searchResp, err := httpClient.Get(searchURL)
 	if err != nil {
-		return discogsResp{}, fmt.Errorf("search request failed: %w", err)
+		return nil, fmt.Errorf("search request failed: %w", err)
 	}
 	defer searchResp.Body.Close()
 
 	if searchResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(searchResp.Body)
-		return discogsResp{}, fmt.Errorf("search returned status %d: %s", searchResp.StatusCode, string(body))
+		return nil, fmt.Errorf("search returned status %d: %s", searchResp.StatusCode, string(body))
 	}
 
 	var searchResult discogsSearchResp
 	if err := json.NewDecoder(searchResp.Body).Decode(&searchResult); err != nil {
-		return discogsResp{}, fmt.Errorf("failed to decode search response: %w", err)
+		return nil, fmt.Errorf("failed to decode search response: %w", err)
 	}
 
 	if len(searchResult.Results) == 0 {
-		return discogsResp{}, fmt.Errorf("no results found for album '%s' by artist '%s'", albumTitle, artist)
+		return nil, fmt.Errorf("no results found for album '%s' by artist '%s'", albumTitle, artist)
 	}
 
 	masterIDs := make([]int, 0, len(searchResult.Results))
@@ -350,7 +544,26 @@ func requestDiscogs(albumTitle, artist string) (discogsResp, error) {
 	}
 
 	if len(masterIDs) == 0 {
-		return discogsResp{}, fmt.Errorf("no master_id found in search results for album '%s' by artist '%s'", albumTitle, artist)
+		return nil, fmt.Errorf("no master_id found in search results for album '%s' by artist '%s'", albumTitle, artist)
+	}
+
+	return masterIDs, nil
+}
+
+func FindDiscogsMasterID(albumTitle, artist string) (int, error) {
+	httpClient := &http.Client{Timeout: time.Second * 10}
+	masterIDs, err := resolveDiscogsMasterIDs(albumTitle, artist, httpClient)
+	if err != nil {
+		return 0, err
+	}
+	return masterIDs[0], nil
+}
+
+func requestDiscogs(albumTitle, artist string) (discogsResp, error) {
+	httpClient := &http.Client{Timeout: time.Second * 10}
+	masterIDs, err := resolveDiscogsMasterIDs(albumTitle, artist, httpClient)
+	if err != nil {
+		return discogsResp{}, err
 	}
 
 	var lastErr error
@@ -589,6 +802,569 @@ func (k *keeper) PlayRecord(vinylID, userID int64) error {
 	return nil
 }
 
+func (k *keeper) PlayRecordRelease(vinylID, releaseID, userID int64) error {
+	if !k.checkIfExists(vinylID) {
+		return fmt.Errorf("%d does not exist in keeper as a UniqueVinyl", vinylID)
+	}
+
+	if err := k.queries.EnsureOwnershipPlay(k.ctx, vinyl.EnsureOwnershipPlayParams{
+		UserID:     userID,
+		VinylID:    vinylID,
+		ReleaseID:  releaseID,
+		PlayedDate: time.Now().Format("2006-01-02"),
+	}); err != nil {
+		return fmt.Errorf("failed to ensure ownership play for vinyl %d release %d: %w", vinylID, releaseID, err)
+	}
+
+	nextPlay, err := k.queries.NextPlayNumber(k.ctx, vinyl.NextPlayNumberParams{
+		UserID:    userID,
+		VinylID:   vinylID,
+		ReleaseID: releaseID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to resolve next play number for vinyl %d release %d: %w", vinylID, releaseID, err)
+	}
+
+	if err := k.queries.InsertVinylPlay(k.ctx, vinyl.InsertVinylPlayParams{
+		UserID:     userID,
+		VinylID:    vinylID,
+		ReleaseID:  releaseID,
+		Play:       nextPlay,
+		PlayedDate: time.Now().Format("2006-01-02"),
+	}); err != nil {
+		return fmt.Errorf("failed to record play for vinyl %d release %d: %w", vinylID, releaseID, err)
+	}
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.userNumPlays[userID] == nil {
+		k.userNumPlays[userID] = make(map[int64]int)
+	}
+	k.userNumPlays[userID][vinylID] = int(nextPlay)
+	return nil
+}
+
+func (k *keeper) FindClosestReleaseCandidates(input Embedding, n int, userID int64) []vinyl.ReleaseCandidate {
+	if n <= 0 {
+		return []vinyl.ReleaseCandidate{}
+	}
+
+	ownedPressings := map[int64]map[int64]struct{}{}
+	if userID >= 0 {
+		rowsOwned, err := k.db.QueryContext(k.ctx, `
+			SELECT DISTINCT vinyl_id, release_id
+			FROM vinyl_plays
+			WHERE user_id = ?
+		`, userID)
+		if err != nil {
+			log.Printf("[Keeper] failed to query owned pressings for user %d: %v", userID, err)
+		} else {
+			for rowsOwned.Next() {
+				var ownedVinylID int64
+				var ownedReleaseID int64
+				if scanErr := rowsOwned.Scan(&ownedVinylID, &ownedReleaseID); scanErr != nil {
+					log.Printf("[Keeper] failed scanning owned pressing row for user %d: %v", userID, scanErr)
+					continue
+				}
+				if ownedPressings[ownedVinylID] == nil {
+					ownedPressings[ownedVinylID] = map[int64]struct{}{}
+				}
+				ownedPressings[ownedVinylID][ownedReleaseID] = struct{}{}
+			}
+			if err := rowsOwned.Err(); err != nil {
+				log.Printf("[Keeper] failed iterating owned pressings for user %d: %v", userID, err)
+			}
+			rowsOwned.Close()
+		}
+	}
+
+	rows, err := k.db.QueryContext(k.ctx, `
+		SELECT
+			vu.vinyl_id,
+			vu.vinyl_title,
+			vu.vinyl_artist,
+			vu.master_id,
+			vu.styles,
+			vu.genres,
+			COALESCE(vrc.released_year, CAST(substr(vr.released, 1, 4) AS INTEGER)) AS vinyl_pressing_year,
+			COALESCE(NULLIF(vrc.country, ''), vr.country) AS country,
+			vr.released,
+			vr.lowest_price,
+			vr.image_extension,
+			vr.cover_embedding,
+			vr.release_id,
+			vrc.label,
+			vrc.release_format,
+			COALESCE(NULLIF(vrc.country, ''), vr.country) AS release_country,
+			vrc.cover_uri,
+			CASE WHEN length(vr.cover_raw_blob) > 0 THEN 1 ELSE 0 END AS has_blob,
+			vr.notes
+		FROM vinyl_release vr
+		JOIN vinyl_unique vu ON vu.vinyl_id = vr.vinyl_id
+		LEFT JOIN vinyl_releases_check vrc
+			ON vrc.vinyl_id = vr.vinyl_id
+		   AND vrc.release_id = vr.release_id
+		WHERE length(vr.cover_embedding) > 0
+		  AND length(vr.cover_raw_blob) > 0
+	`)
+	if err != nil {
+		log.Printf("[Keeper] failed to query release candidates: %v", err)
+		return []vinyl.ReleaseCandidate{}
+	}
+	defer rows.Close()
+
+	type scoredCandidate struct {
+		candidate vinyl.ReleaseCandidate
+		score     float64
+	}
+	scored := make([]scoredCandidate, 0)
+
+	for rows.Next() {
+		var row releaseScanRow
+		if err := rows.Scan(
+			&row.VinylID,
+			&row.VinylTitle,
+			&row.VinylArtist,
+			&row.MasterID,
+			&row.Styles,
+			&row.Genres,
+			&row.VinylPressingYear,
+			&row.Country,
+			&row.Released,
+			&row.RecentPrice,
+			&row.ImageExtension,
+			&row.CoverEmbedding,
+			&row.ReleaseID,
+			&row.Label,
+			&row.ReleaseFormat,
+			&row.ReleaseCountry,
+			&row.CoverURI,
+			&row.HasBlob,
+			&row.Notes,
+		); err != nil {
+			log.Printf("[Keeper] failed scanning release row: %v", err)
+			continue
+		}
+
+		emb, err := EmbeddingFromBlob(row.CoverEmbedding)
+		if err != nil {
+			continue
+		}
+
+		if ownedReleases, ownsVinyl := ownedPressings[row.VinylID]; ownsVinyl {
+			if _, ownsPressing := ownedReleases[row.ReleaseID]; !ownsPressing {
+				continue
+			}
+		}
+
+		sim := cosineSimilarity(input, emb)
+		scored = append(scored, scoredCandidate{
+			candidate: vinyl.ReleaseCandidate{
+				VinylRecord: vinyl.VinylRecord{
+					VinylID:           row.VinylID,
+					VinylTitle:        row.VinylTitle,
+					VinylArtist:       row.VinylArtist,
+					MasterID:          nullableInt64(row.MasterID),
+					Genres:            nullableString(row.Genres),
+					Styles:            nullableString(row.Styles),
+					Country:           nullableString(row.Country),
+					Released:          row.Released,
+					RecentPrice:       nullableFloat64(row.RecentPrice),
+					ImageExtension:    row.ImageExtension,
+					CoverEmbedding:    row.CoverEmbedding,
+					VinylPressingYear: nullableInt64Value(row.VinylPressingYear),
+				},
+				ReleaseID:      row.ReleaseID,
+				Label:          nullableString(row.Label),
+				ReleaseFormat:  nullableString(row.ReleaseFormat),
+				ReleaseCountry: nullableString(row.ReleaseCountry),
+				CoverURI:       nullableString(row.CoverURI),
+				HasBlob:        row.HasBlob == 1,
+				Notes:          nullableString(row.Notes),
+				Similarity:     sim,
+			},
+			score: sim,
+		})
+	}
+
+	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].score == scored[j].score {
+			if scored[i].candidate.VinylID == scored[j].candidate.VinylID {
+				return scored[i].candidate.ReleaseID < scored[j].candidate.ReleaseID
+			}
+			return scored[i].candidate.VinylID < scored[j].candidate.VinylID
+		}
+		return scored[i].score > scored[j].score
+	})
+
+	if n > len(scored) {
+		n = len(scored)
+	}
+	out := make([]vinyl.ReleaseCandidate, 0, n)
+	for i := 0; i < n; i++ {
+		candidate := scored[i].candidate
+		candidate.Similarity = scored[i].score
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func (k *keeper) GetReleaseCandidate(vinylID, releaseID int64) (*vinyl.ReleaseCandidate, error) {
+	row := k.db.QueryRowContext(k.ctx, `
+		SELECT
+			vu.vinyl_id,
+			vu.vinyl_title,
+			vu.vinyl_artist,
+			vu.master_id,
+			vu.styles,
+			vu.genres,
+			COALESCE(vrc.released_year, CAST(substr(vr.released, 1, 4) AS INTEGER)) AS vinyl_pressing_year,
+			COALESCE(NULLIF(vrc.country, ''), vr.country) AS country,
+			vr.released,
+			vr.lowest_price,
+			vr.image_extension,
+			vr.cover_embedding,
+			vr.release_id,
+			vrc.label,
+			vrc.release_format,
+			COALESCE(NULLIF(vrc.country, ''), vr.country) AS release_country,
+			vrc.cover_uri,
+			CASE WHEN length(vr.cover_raw_blob) > 0 THEN 1 ELSE 0 END AS has_blob,
+			vr.notes
+		FROM vinyl_release vr
+		JOIN vinyl_unique vu ON vu.vinyl_id = vr.vinyl_id
+		LEFT JOIN vinyl_releases_check vrc
+			ON vrc.vinyl_id = vr.vinyl_id
+		   AND vrc.release_id = vr.release_id
+		WHERE vr.vinyl_id = ? AND vr.release_id = ?
+		LIMIT 1
+	`, vinylID, releaseID)
+
+	var scanned releaseScanRow
+	if err := row.Scan(
+		&scanned.VinylID,
+		&scanned.VinylTitle,
+		&scanned.VinylArtist,
+		&scanned.MasterID,
+		&scanned.Styles,
+		&scanned.Genres,
+		&scanned.VinylPressingYear,
+		&scanned.Country,
+		&scanned.Released,
+		&scanned.RecentPrice,
+		&scanned.ImageExtension,
+		&scanned.CoverEmbedding,
+		&scanned.ReleaseID,
+		&scanned.Label,
+		&scanned.ReleaseFormat,
+		&scanned.ReleaseCountry,
+		&scanned.CoverURI,
+		&scanned.HasBlob,
+		&scanned.Notes,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &vinyl.ReleaseCandidate{
+		VinylRecord: vinyl.VinylRecord{
+			VinylID:           scanned.VinylID,
+			VinylTitle:        scanned.VinylTitle,
+			VinylArtist:       scanned.VinylArtist,
+			MasterID:          nullableInt64(scanned.MasterID),
+			Genres:            nullableString(scanned.Genres),
+			Styles:            nullableString(scanned.Styles),
+			Country:           nullableString(scanned.Country),
+			Released:          scanned.Released,
+			RecentPrice:       nullableFloat64(scanned.RecentPrice),
+			ImageExtension:    scanned.ImageExtension,
+			CoverEmbedding:    scanned.CoverEmbedding,
+			VinylPressingYear: nullableInt64Value(scanned.VinylPressingYear),
+		},
+		ReleaseID:      scanned.ReleaseID,
+		Label:          nullableString(scanned.Label),
+		ReleaseFormat:  nullableString(scanned.ReleaseFormat),
+		ReleaseCountry: nullableString(scanned.ReleaseCountry),
+		CoverURI:       nullableString(scanned.CoverURI),
+		HasBlob:        scanned.HasBlob == 1,
+		Notes:          nullableString(scanned.Notes),
+	}, nil
+}
+
+func (k *keeper) ListPressingOptions(vinylID, userID int64) ([]vinyl.ReleaseOption, error) {
+	rows, err := k.db.QueryContext(k.ctx, `
+		SELECT
+			vu.vinyl_id,
+			vu.vinyl_title,
+			vu.vinyl_artist,
+			vu.master_id,
+			vu.styles,
+			vu.genres,
+			COALESCE(vrc.released_year, 0) AS vinyl_pressing_year,
+			NULLIF(vrc.country, '') AS country,
+			COALESCE(vr.released, '') AS released,
+			vr.lowest_price,
+			COALESCE(vr.image_extension, '') AS image_extension,
+			vrc.release_id,
+			NULLIF(vrc.label, '') AS label,
+			NULLIF(vrc.release_format, '') AS release_format,
+			NULLIF(vrc.country, '') AS release_country,
+			NULLIF(vrc.cover_uri, '') AS cover_uri,
+			CASE WHEN length(vr.cover_raw_blob) > 0 THEN 1 ELSE 0 END AS has_blob,
+			vr.notes,
+			CASE WHEN vrc.release_id = (
+				SELECT vp.release_id
+				FROM vinyl_plays vp
+				WHERE vp.user_id = ? AND vp.vinyl_id = ?
+				ORDER BY vp.played_date DESC, vp.play DESC
+				LIMIT 1
+			) THEN 1 ELSE 0 END AS is_current
+		FROM vinyl_releases_check vrc
+		JOIN vinyl_unique vu ON vu.vinyl_id = vrc.vinyl_id
+		LEFT JOIN vinyl_release vr
+			ON vr.vinyl_id = vrc.vinyl_id
+		   AND vr.release_id = vrc.release_id
+		WHERE vrc.vinyl_id = ?
+		ORDER BY vrc.released_year ASC, vrc.release_id ASC
+	`, userID, vinylID, vinylID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]vinyl.ReleaseOption, 0)
+	for rows.Next() {
+		var row releaseScanRow
+		var isCurrent int64
+		if err := rows.Scan(
+			&row.VinylID,
+			&row.VinylTitle,
+			&row.VinylArtist,
+			&row.MasterID,
+			&row.Styles,
+			&row.Genres,
+			&row.VinylPressingYear,
+			&row.Country,
+			&row.Released,
+			&row.RecentPrice,
+			&row.ImageExtension,
+			&row.ReleaseID,
+			&row.Label,
+			&row.ReleaseFormat,
+			&row.ReleaseCountry,
+			&row.CoverURI,
+			&row.HasBlob,
+			&row.Notes,
+			&isCurrent,
+		); err != nil {
+			return nil, err
+		}
+
+		result = append(result, vinyl.ReleaseOption{
+			ReleaseCandidate: vinyl.ReleaseCandidate{
+				VinylRecord: vinyl.VinylRecord{
+					VinylID:           row.VinylID,
+					VinylTitle:        row.VinylTitle,
+					VinylArtist:       row.VinylArtist,
+					MasterID:          nullableInt64(row.MasterID),
+					Genres:            nullableString(row.Genres),
+					Styles:            nullableString(row.Styles),
+					Country:           nullableString(row.Country),
+					Released:          row.Released,
+					RecentPrice:       nullableFloat64(row.RecentPrice),
+					ImageExtension:    row.ImageExtension,
+					VinylPressingYear: nullableInt64Value(row.VinylPressingYear),
+				},
+				ReleaseID:      row.ReleaseID,
+				Label:          nullableString(row.Label),
+				ReleaseFormat:  nullableString(row.ReleaseFormat),
+				ReleaseCountry: nullableString(row.ReleaseCountry),
+				CoverURI:       nullableString(row.CoverURI),
+				HasBlob:        row.HasBlob == 1,
+				Notes:          nullableString(row.Notes),
+			},
+			IsCurrent: isCurrent == 1,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (k *keeper) ensureReleaseMaterialized(vinylID, releaseID int64) error {
+	var existingEmbLen int64
+	var existingCoverLen int64
+	err := k.db.QueryRowContext(k.ctx, `
+		SELECT length(cover_embedding), length(cover_raw_blob)
+		FROM vinyl_release
+		WHERE vinyl_id = ? AND release_id = ?
+		LIMIT 1
+	`, vinylID, releaseID).Scan(&existingEmbLen, &existingCoverLen)
+	if err == nil && existingEmbLen > 0 && existingCoverLen > 0 {
+		return nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	v := k.GetVinyl(vinylID)
+	if v == nil {
+		return fmt.Errorf("vinyl %d not found", vinylID)
+	}
+
+	masterID := 0
+	if v.MasterID != nil {
+		masterID = int(*v.MasterID)
+	}
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	payload, _, err := buildMainReleasePayload(masterID, int(releaseID), httpClient)
+	if err != nil {
+		return err
+	}
+
+	currentMaster := int64(0)
+	_ = k.db.QueryRowContext(k.ctx, `
+		SELECT master_release
+		FROM vinyl_release
+		WHERE vinyl_id = ? AND release_id = ?
+		LIMIT 1
+	`, vinylID, releaseID).Scan(&currentMaster)
+
+	_, err = k.db.ExecContext(k.ctx, `
+		INSERT INTO vinyl_release(
+			vinyl_id, release_id, lowest_price, price_last_updated, country, notes, released,
+			master_release, resource_uri, image_extension, cover_raw_blob, cover_embedding
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(vinyl_id, release_id) DO UPDATE SET
+			lowest_price = excluded.lowest_price,
+			price_last_updated = excluded.price_last_updated,
+			country = excluded.country,
+			notes = excluded.notes,
+			released = excluded.released,
+			resource_uri = excluded.resource_uri,
+			image_extension = excluded.image_extension,
+			cover_raw_blob = excluded.cover_raw_blob,
+			cover_embedding = excluded.cover_embedding
+	`,
+		vinylID,
+		releaseID,
+		payload.LowestPrice,
+		time.Now().Format("2006-01-02"),
+		payload.Country,
+		payload.Notes,
+		payload.Released,
+		currentMaster,
+		payload.ResourceURI,
+		payload.ImageExtension,
+		payload.RawCoverData,
+		payload.CoverEmbedding,
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := k.reloadVinylCaches(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (k *keeper) ChangeUserPressing(vinylID, releaseID, userID int64) error {
+	if err := k.ensureReleaseMaterialized(vinylID, releaseID); err != nil {
+		return fmt.Errorf("materialize release %d for vinyl %d: %w", releaseID, vinylID, err)
+	}
+
+	tx, err := k.db.BeginTx(k.ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(k.ctx, `
+		SELECT play, played_date
+		FROM vinyl_plays
+		WHERE user_id = ? AND vinyl_id = ?
+		ORDER BY played_date ASC, play ASC
+	`, userID, vinylID)
+	if err != nil {
+		return err
+	}
+
+	ownershipDate := ""
+	playDates := make([]string, 0)
+	for rows.Next() {
+		var play int64
+		var playedDate string
+		if err := rows.Scan(&play, &playedDate); err != nil {
+			rows.Close()
+			return err
+		}
+		if play == 0 {
+			if ownershipDate == "" || playedDate < ownershipDate {
+				ownershipDate = playedDate
+			}
+			continue
+		}
+		playDates = append(playDates, playedDate)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	if ownershipDate == "" {
+		if len(playDates) > 0 {
+			ownershipDate = playDates[0]
+		} else {
+			ownershipDate = time.Now().Format("2006-01-02")
+		}
+	}
+
+	if _, err := tx.ExecContext(k.ctx, `
+		DELETE FROM vinyl_plays
+		WHERE user_id = ? AND vinyl_id = ?
+	`, userID, vinylID); err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(k.ctx, `
+		INSERT INTO vinyl_plays(user_id, vinyl_id, release_id, play, played_date)
+		VALUES (?, ?, ?, 0, ?)
+	`, userID, vinylID, releaseID, ownershipDate); err != nil {
+		return err
+	}
+
+	for i, playedDate := range playDates {
+		if _, err := tx.ExecContext(k.ctx, `
+			INSERT INTO vinyl_plays(user_id, vinyl_id, release_id, play, played_date)
+			VALUES (?, ?, ?, ?, ?)
+		`, userID, vinylID, releaseID, int64(i+1), playedDate); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	k.mu.Lock()
+	if k.userNumPlays[userID] == nil {
+		k.userNumPlays[userID] = make(map[int64]int)
+	}
+	k.userNumPlays[userID][vinylID] = len(playDates)
+	k.mu.Unlock()
+
+	return nil
+}
+
 func (k *keeper) NumPlays(vinylID, userID int64) int {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
@@ -637,22 +1413,8 @@ func (k *keeper) initKeeper(ctx context.Context) error {
 		return err
 	}
 
-	// Load all vinyls
-	vinyls, err := k.queries.GetAllVinylRecords(k.ctx)
-	if err != nil {
+	if err := k.reloadVinylCaches(); err != nil {
 		return err
-	}
-	k.vinylLookup = make(map[int64]vinyl.VinylRecord)
-	k.embeddingLookup = make(map[int64]Embedding)
-	for _, row := range vinyls {
-		v := mapVinylRecord(row)
-		k.vinylLookup[v.VinylID] = v
-		// Decode embedding from blob
-		emb, err := EmbeddingFromBlob(v.CoverEmbedding)
-		if err != nil {
-			return fmt.Errorf("failed to decode embedding for vinyl %d: %w", v.VinylID, err)
-		}
-		k.embeddingLookup[v.VinylID] = emb
 	}
 
 	// Load ALL user plays from all users
@@ -670,6 +1432,33 @@ func (k *keeper) initKeeper(ctx context.Context) error {
 
 	// Build initial vinyl index
 	k.rebuildIndex()
+
+	return nil
+}
+
+func (k *keeper) reloadVinylCaches() error {
+	vinyls, err := k.queries.GetAllVinylRecords(k.ctx)
+	if err != nil {
+		return err
+	}
+
+	lookup := make(map[int64]vinyl.VinylRecord, len(vinyls))
+	embeddings := make(map[int64]Embedding, len(vinyls))
+	for _, row := range vinyls {
+		v := mapVinylRecord(row)
+		lookup[v.VinylID] = v
+		emb, err := EmbeddingFromBlob(v.CoverEmbedding)
+		if err != nil {
+			return fmt.Errorf("failed to decode embedding for vinyl %d: %w", v.VinylID, err)
+		}
+		embeddings[v.VinylID] = emb
+	}
+
+	k.mu.Lock()
+	k.vinylLookup = lookup
+	k.embeddingLookup = embeddings
+	k.needsRebuild = true
+	k.mu.Unlock()
 
 	return nil
 }
@@ -756,6 +1545,40 @@ func stringPtrIfNonEmpty(v string) *string {
 	return &trimmed
 }
 
+func nullableString(v sql.NullString) *string {
+	if !v.Valid {
+		return nil
+	}
+	trimmed := strings.TrimSpace(v.String)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func nullableInt64(v sql.NullInt64) *int64 {
+	if !v.Valid {
+		return nil
+	}
+	val := v.Int64
+	return &val
+}
+
+func nullableInt64Value(v sql.NullInt64) int64 {
+	if !v.Valid {
+		return 0
+	}
+	return v.Int64
+}
+
+func nullableFloat64(v sql.NullFloat64) *float64 {
+	if !v.Valid {
+		return nil
+	}
+	val := v.Float64
+	return &val
+}
+
 func ptrDateToday() *string {
 	v := time.Now().Format("2006-01-02")
 	return &v
@@ -774,30 +1597,128 @@ func columnExists(ctx context.Context, db *sql.DB, tableName, columnName string)
 	return false, err
 }
 
-func ensureSchemaCompatibility(ctx context.Context, db *sql.DB) error {
-	hasMasterID, err := columnExists(ctx, db, "vinyl_unique", "master_id")
+type tableColumnInfo struct {
+	Name    string
+	NotNull bool
+}
+
+func tableColumns(ctx context.Context, db *sql.DB, tableName string) (map[string]tableColumnInfo, error) {
+	query := fmt.Sprintf("SELECT name, \"notnull\" FROM pragma_table_info('%s')", tableName)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
-		return fmt.Errorf("check vinyl_unique.master_id: %w", err)
+		return nil, err
 	}
-	if !hasMasterID {
-		if _, err := db.ExecContext(ctx, "ALTER TABLE vinyl_unique ADD COLUMN master_id INTEGER"); err != nil {
-			return fmt.Errorf("add vinyl_unique.master_id: %w", err)
+	defer rows.Close()
+
+	columns := make(map[string]tableColumnInfo)
+	for rows.Next() {
+		var info tableColumnInfo
+		var notNullInt int64
+		if err := rows.Scan(&info.Name, &notNullInt); err != nil {
+			return nil, err
 		}
-		hasMasterID = true
+		info.NotNull = notNullInt == 1
+		columns[info.Name] = info
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return columns, nil
+}
+
+func rebuildVinylUniqueCanonical(ctx context.Context, db *sql.DB, columns map[string]tableColumnInfo) error {
+	masterExpr := "NULL"
+	if _, ok := columns["master_id"]; ok {
+		masterExpr = "master_id"
+	}
+	if _, ok := columns["discogs_master_id"]; ok {
+		if masterExpr == "NULL" {
+			masterExpr = "discogs_master_id"
+		} else {
+			masterExpr = "COALESCE(master_id, discogs_master_id)"
+		}
 	}
 
-	hasLegacyMasterID, err := columnExists(ctx, db, "vinyl_unique", "discogs_master_id")
-	if err != nil {
-		return fmt.Errorf("check vinyl_unique.discogs_master_id: %w", err)
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("disable foreign keys for vinyl_unique rebuild: %w", err)
 	}
-	if hasMasterID && hasLegacyMasterID {
-		if _, err := db.ExecContext(ctx, `
-			UPDATE vinyl_unique
-			SET master_id = COALESCE(master_id, discogs_master_id)
-			WHERE master_id IS NULL
-			  AND discogs_master_id IS NOT NULL
-		`); err != nil {
-			return fmt.Errorf("backfill vinyl_unique.master_id: %w", err)
+	defer db.ExecContext(ctx, "PRAGMA foreign_keys = ON")
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		CREATE TABLE vinyl_unique_new(
+			vinyl_id INTEGER PRIMARY KEY AUTOINCREMENT,
+			vinyl_title TEXT NOT NULL,
+			vinyl_artist TEXT NOT NULL,
+			master_id INTEGER,
+			styles TEXT,
+			genres TEXT,
+			UNIQUE (vinyl_title, vinyl_artist)
+		)
+	`); err != nil {
+		return fmt.Errorf("create vinyl_unique_new: %w", err)
+	}
+
+	insertStmt := fmt.Sprintf(`
+		INSERT INTO vinyl_unique_new(vinyl_id, vinyl_title, vinyl_artist, master_id, styles, genres)
+		SELECT vinyl_id, vinyl_title, vinyl_artist, %s, styles, genres
+		FROM vinyl_unique
+	`, masterExpr)
+	if _, err := tx.ExecContext(ctx, insertStmt); err != nil {
+		return fmt.Errorf("copy vinyl_unique into canonical table: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, "DROP TABLE vinyl_unique"); err != nil {
+		return fmt.Errorf("drop legacy vinyl_unique: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "ALTER TABLE vinyl_unique_new RENAME TO vinyl_unique"); err != nil {
+		return fmt.Errorf("rename vinyl_unique_new: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_key_check"); err != nil {
+		return fmt.Errorf("foreign key check after vinyl_unique rebuild: %w", err)
+	}
+
+	return nil
+}
+
+func ensureSchemaCompatibility(ctx context.Context, db *sql.DB) error {
+	columns, err := tableColumns(ctx, db, "vinyl_unique")
+	if err != nil {
+		return fmt.Errorf("read vinyl_unique columns: %w", err)
+	}
+
+	legacyColumns := []string{
+		"discogs_master_id",
+		"vinyl_pressing_year",
+		"first_pressing",
+		"image_extension",
+		"cover_raw_blob",
+		"cover_embedding",
+	}
+	rebuildNeeded := false
+	for _, column := range legacyColumns {
+		if _, exists := columns[column]; exists {
+			rebuildNeeded = true
+			break
+		}
+	}
+	if _, hasMasterID := columns["master_id"]; !hasMasterID {
+		rebuildNeeded = true
+	}
+
+	if rebuildNeeded {
+		if err := rebuildVinylUniqueCanonical(ctx, db, columns); err != nil {
+			return fmt.Errorf("rebuild canonical vinyl_unique table: %w", err)
 		}
 	}
 
@@ -878,6 +1799,24 @@ func (k *keeper) GetVinyl(vinylID int64) *vinyl.VinylRecord {
 		return nil
 	}
 	return &v
+}
+
+func (k *keeper) GetReleaseCover(vinylID, releaseID int64) ([]byte, string, bool) {
+	var imageExtension string
+	var cover []byte
+	err := k.db.QueryRowContext(k.ctx, `
+		SELECT image_extension, cover_raw_blob
+		FROM vinyl_release
+		WHERE vinyl_id = ? AND release_id = ?
+		LIMIT 1
+	`, vinylID, releaseID).Scan(&imageExtension, &cover)
+	if err != nil {
+		return nil, "", false
+	}
+	if len(cover) == 0 {
+		return nil, "", false
+	}
+	return cover, imageExtension, true
 }
 
 func cosineSimilarity(a, b Embedding) float64 {

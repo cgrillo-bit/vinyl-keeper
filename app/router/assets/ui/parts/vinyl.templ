@@ -6,6 +6,7 @@ import (
 	"time"
 	"github.com/ninesl/vinyl-keeper/app/router/assets/ui/components/button"
 	"github.com/ninesl/vinyl-keeper/app/router/assets/ui/components/card"
+	"github.com/ninesl/vinyl-keeper/app/router/assets/ui/components/dialog"
 	"github.com/ninesl/vinyl-keeper/app/router/types"
 	"github.com/ninesl/vinyl-keeper/app/router/values"
 )
@@ -41,10 +42,16 @@ func displayArtistName(artist string) string {
 
 type VinylRender struct {
 	VinylID           int64
+	ReleaseID         int64
 	VinylTitle        string
 	VinylArtist       string
 	VinylPressingYear int64
 	Similarity        *float64
+	ShowConfidence    bool
+	ImageSrc          string
+	PressingLabel     *string
+	Notes             *string
+	RecentPrice       *float64
 	Genres            *string
 	Styles            *string
 	Plays             *int64
@@ -55,9 +62,14 @@ type VinylRender struct {
 func NewAlbumVinylRender(v types.Vinyl) VinylRender {
 	return VinylRender{
 		VinylID:           v.ID(),
+		ReleaseID:         v.ReleaseID(),
 		VinylTitle:        v.Title(),
 		VinylArtist:       v.Artist(),
 		VinylPressingYear: v.Year(),
+		ImageSrc:          v.Image(),
+		PressingLabel:     v.PressingLabel(),
+		Notes:             v.Notes(),
+		RecentPrice:       v.RecentPrice(),
 		Genres:            v.Genres(),
 		Styles:            v.Styles(),
 	}
@@ -70,9 +82,14 @@ func NewMyVinylRender(v types.Vinyl) VinylRender {
 	}
 	return VinylRender{
 		VinylID:           v.ID(),
+		ReleaseID:         v.ReleaseID(),
 		VinylTitle:        v.Title(),
 		VinylArtist:       v.Artist(),
 		VinylPressingYear: v.Year(),
+		ImageSrc:          v.BlobImageURL(),
+		PressingLabel:     v.PressingLabel(),
+		Notes:             v.Notes(),
+		RecentPrice:       v.RecentPrice(),
 		Genres:            v.Genres(),
 		Styles:            v.Styles(),
 		Plays:             &plays,
@@ -84,6 +101,25 @@ func NewMyVinylRender(v types.Vinyl) VinylRender {
 func NewScanAlbumVinylRender(v types.Vinyl, similarity float64) VinylRender {
 	r := NewAlbumVinylRender(v)
 	r.Similarity = &similarity
+	r.ShowConfidence = true
+	return r
+}
+
+func NewPressingChoiceVinylRender(v types.Vinyl) VinylRender {
+	r := NewAlbumVinylRender(v)
+	zero := 0.0
+	r.Similarity = &zero
+	r.ShowConfidence = false
+	r.ImageSrc = pressingImageSrc(v)
+	return r
+}
+
+func NewRegisterChoiceVinylRender(v types.Vinyl) VinylRender {
+	r := NewAlbumVinylRender(v)
+	zero := 0.0
+	r.Similarity = &zero
+	r.ShowConfidence = false
+	r.ImageSrc = scannerImageSrc(v)
 	return r
 }
 
@@ -140,6 +176,46 @@ func (r VinylRender) lastDateText() string {
 	return "--"
 }
 
+func formatPriceUSD(price *float64) string {
+	if price == nil {
+		return "N/A"
+	}
+	return fmt.Sprintf("$%.2f", *price)
+}
+
+func pressingLabelLines(label *string) []string {
+	if label == nil {
+		return nil
+	}
+	parts := strings.Split(*label, "/")
+	lines := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		lines = append(lines, trimmed)
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return lines
+}
+
+func scannerImageSrc(v types.Vinyl) string {
+	return v.BlobImageURL()
+}
+
+func pressingImageSrc(v types.Vinyl) string {
+	if v.HasBlob() {
+		return v.BlobImageURL()
+	}
+	if thumb := v.ThumbImageURL(); thumb != nil {
+		return *thumb
+	}
+	return v.BlobImageURL()
+}
+
 templ ConfidenceBadge(similarity float64) {
 	<div class="absolute right-2 top-2 z-10 rounded bg-black/70 px-2 py-1 text-sm font-bold backdrop-blur-sm">
 		<span
@@ -165,17 +241,32 @@ templ VinylCard(r VinylRender) {
 	@card.Card(card.Props{ID: fmt.Sprintf("vinyl-%d", r.VinylID), Class: "overflow-hidden rounded-none"}) {
 		if r.Similarity != nil {
 			<div class="relative block">
-				@ConfidenceBadge(*r.Similarity)
+				if r.ShowConfidence {
+					@ConfidenceBadge(*r.Similarity)
+				}
 				<img
 					class="aspect-square w-full object-cover"
-					src={ fmt.Sprintf(values.EndpointCover+"/%d", r.VinylID) }
+					src={ r.ImageSrc }
 					alt={ r.VinylTitle + " by " + displayArtistName(r.VinylArtist) }
 					loading="lazy"
 				/>
 				<div class="overlay-default absolute inset-0">
 					<div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-2 pt-6 pb-2 text-white">
+						if r.PressingLabel != nil {
+							<div class="text-[10px] text-white/80 leading-tight">
+								for _, line := range pressingLabelLines(r.PressingLabel) {
+									<div>{ line }</div>
+								}
+							</div>
+						}
 						<div class="text-sm font-semibold leading-tight">{ r.VinylTitle }</div>
 						<div class="text-xs text-white/80">{ displayArtistName(r.VinylArtist) }</div>
+						if r.Genres != nil {
+							<div class="text-[10px] text-white/70">{ *r.Genres }</div>
+						}
+						if r.Notes != nil {
+							<p class="block w-full overflow-y-auto overflow-x-hidden break-words pr-1 text-[10px] leading-tight text-white/70" style="max-height:40px;">{ *r.Notes }</p>
+						}
 					</div>
 					<div class="absolute bottom-2 right-2 text-right text-[10px] text-white/90 drop-shadow-sm">
 						<div class="text-xs font-semibold">{ fmt.Sprintf("%d", r.VinylPressingYear) }</div>
@@ -187,7 +278,7 @@ templ VinylCard(r VinylRender) {
 				<summary class="relative block list-none cursor-pointer select-none outline-none">
 					<img
 						class="aspect-square w-full object-cover"
-						src={ fmt.Sprintf(values.EndpointCover+"/%d", r.VinylID) }
+						src={ r.ImageSrc }
 						alt={ r.VinylTitle + " by " + displayArtistName(r.VinylArtist) }
 						loading="lazy"
 					/>
@@ -204,7 +295,19 @@ templ VinylCard(r VinylRender) {
 					<!-- Spoiler overlay -->
 					<div class="overlay-spoiler absolute inset-0 bg-black/60">
 						if r.showPlayDetails() {
-							<div class="absolute left-2 top-2 z-20 rounded bg-black/50 px-2 py-1.5 text-xs text-white backdrop-blur-sm">
+							<div class="absolute left-0 right-0 top-0 z-20 bg-black/55 px-2 py-2 text-xs text-white backdrop-blur-sm">
+								<div class="mb-1.5">
+									@dialog.Trigger(dialog.TriggerProps{For: "modal-zone-dialog", Attributes: templ.Attributes{
+										"hx-get":    fmt.Sprintf(values.EndpointModal+"/my-collection/%d"+values.EndpointPressings, r.VinylID),
+										"hx-target": "#" + values.IDModalZoneContent,
+										"hx-swap":   "innerHTML",
+										"onclick":   "event.preventDefault(); event.stopPropagation();",
+									}}) {
+										@button.Button(button.Props{Variant: button.VariantSecondary, Size: button.SizeSm, Class: "w-auto px-2 py-1 text-xs"}) {
+											Change Pressing
+										}
+									}
+								</div>
 								<div class="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
 									<span class="text-white/70">Spins</span>
 									<span class="text-right font-medium">{ r.playedDetailsText() }</span>
@@ -212,6 +315,12 @@ templ VinylCard(r VinylRender) {
 									<span class="text-right">{ r.addedDateText() }</span>
 									<span class="text-white/70">Last</span>
 									<span class="text-right">{ r.lastDateText() }</span>
+									<span class="text-white/70">Price</span>
+									<span class="text-right">{ formatPriceUSD(r.RecentPrice) }</span>
+									if r.Notes != nil {
+										<span class="text-white/70">Notes</span>
+										<div class="block w-full overflow-y-auto overflow-x-hidden break-words pr-1 text-right text-[10px] leading-tight" style="max-height:40px;">{ *r.Notes }</div>
+									}
 								</div>
 							</div>
 						}
@@ -221,8 +330,16 @@ templ VinylCard(r VinylRender) {
 							}
 						</div>
 						<div class="absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-2 pt-6 pb-2 text-white">
-							<div class="text-sm font-semibold leading-tight">{ r.VinylTitle }</div>
-							<div class="text-xs text-white/80">{ displayArtistName(r.VinylArtist) }</div>
+							if r.showPlayDetails() && r.PressingLabel != nil {
+								<div class="text-[10px] text-white/80 leading-tight">
+									for _, line := range pressingLabelLines(r.PressingLabel) {
+										<div>{ line }</div>
+									}
+								</div>
+							} else {
+								<div class="text-sm font-semibold leading-tight">{ r.VinylTitle }</div>
+								<div class="text-xs text-white/80">{ displayArtistName(r.VinylArtist) }</div>
+							}
 						</div>
 						if r.metaInSpoiler() {
 							<div class="absolute bottom-2 right-2 z-20 text-right text-[10px] text-white/90 drop-shadow-sm">
@@ -246,50 +363,129 @@ templ EmptyState(message string) {
 }
 
 templ LowConfidenceChoiceCards(vinyls []types.Vinyl, similarities []float64) {
+	@SelectableVinylChoiceCards(vinyls, similarities, "scanner", 0, 0, "", "")
+}
+
+templ RegisterChoiceCards(vinyls []types.Vinyl) {
+	@SelectableVinylChoiceCards(vinyls, nil, "register", 0, 0, "", "")
+}
+
+templ PressingChoiceCards(selected types.Vinyl, selectedReleaseID int64, options []types.Vinyl) {
+	@SelectableVinylChoiceCards(options, nil, "pressing", selected.ID(), selectedReleaseID, selected.Title(), selected.Artist())
+}
+
+templ SelectableVinylChoiceCards(vinyls []types.Vinyl, similarities []float64, mode string, vinylID int64, selectedReleaseID int64, selectedTitle string, selectedArtist string) {
+	{{
+		formAction := values.EndpointSearch + values.EndpointHTMX
+		radioName := values.QuerySelection
+		submitLabel := "Yes, this is correct"
+		showRegister := true
+		enableSubmit := true
+		formID := "scan-choice-form"
+		if mode == "pressing" {
+			formAction = values.EndpointMyVinyl + values.EndpointRelease + values.EndpointChange
+			radioName = values.QueryReleaseID
+			submitLabel = "Change Pressing"
+			showRegister = false
+			formID = "pressing-choice-form"
+		} else if mode == "register" {
+			showRegister = false
+			enableSubmit = false
+			formID = "register-choice-form"
+		}
+	}}
 	<form
-		class="space-y-2"
-		hx-post={ values.EndpointSearch + values.EndpointHTMX }
-		hx-target={ "#" + values.IDModalZoneContent }
-		hx-swap="innerHTML"
+		id={ formID }
+		class={
+			templ.KV("space-y-2", mode != "pressing"),
+			templ.KV("flex flex-col gap-3", mode == "pressing"),
+		}
+		if enableSubmit {
+			hx-post={ formAction }
+			hx-target={ "#" + values.IDModalZoneContent }
+			hx-swap="innerHTML"
+		}
 	>
-		<input type="hidden" name={ values.QueryConfirm } value="1"/>
-		<div class="mx-auto grid max-w-7xl grid-cols-2 gap-2">
+		if mode == "scanner" {
+			<input type="hidden" name={ values.QueryConfirm } value="1"/>
+		}
+		if mode == "pressing" {
+			<input type="hidden" name={ values.ParamVinylID } value={ fmt.Sprintf("%d", vinylID) }/>
+		}
+		<div
+			if mode == "pressing" {
+				id="pressing-scroll-list"
+			}
+			class={
+				templ.KV("max-h-[calc(85vh-16rem)] overflow-y-auto overflow-x-hidden p-2 pr-4", mode == "pressing"),
+			}
+		>
+			<div class="mx-auto grid max-w-7xl grid-cols-2 gap-2">
 			for i, v := range vinyls {
 				{{ similarity := 0.0 }}
 				if i < len(similarities) {
 					{{ similarity = similarities[i] }}
 				}
-				<label class="flex cursor-pointer items-start gap-2">
+				<label class="relative flex cursor-pointer items-start gap-2">
 					<input
-						class="peer sr-only"
+						class="peer absolute left-0 top-0 h-px w-px opacity-0"
 						type="radio"
-						name={ values.ParamVinylID }
-						value={ fmt.Sprintf("%d", v.ID()) }
-						checked?={ i == 0 }
+						name={ radioName }
+						if mode == "pressing" {
+							value={ fmt.Sprintf("%d", v.ReleaseID()) }
+						} else {
+							value={ fmt.Sprintf("%d:%d", v.ID(), v.ReleaseID()) }
+						}
+						checked?={ (mode == "pressing" && selectedReleaseID > 0 && v.ReleaseID() == selectedReleaseID) || (mode != "pressing" && i == 0) }
 					/>
 					<div class="w-full rounded-sm transition-shadow peer-checked:shadow-[0_0_0_2px_rgba(255,255,255,0.95),0_0_20px_rgba(255,255,255,0.75)] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-white peer-focus-visible:outline-offset-2">
-						@VinylCard(NewScanAlbumVinylRender(v, similarity))
+						if mode == "scanner" {
+							{{ render := NewScanAlbumVinylRender(v, similarity) }}
+							{{ render.ImageSrc = scannerImageSrc(v) }}
+							@VinylCard(render)
+						} else if mode == "register" {
+							@VinylCard(NewRegisterChoiceVinylRender(v))
+						} else {
+							@VinylCard(NewPressingChoiceVinylRender(v))
+						}
 					</div>
 				</label>
 			}
+			</div>
 		</div>
+		if mode == "pressing" && enableSubmit {
+			<div class="shrink-0 border-t border-border/60 bg-background/95 px-2 py-2">
+				<div class="mb-2 min-w-0">
+					<h3 class="text-lg font-semibold leading-tight">{ selectedTitle }</h3>
+					<p class="text-sm text-muted-foreground">{ selectedArtist }</p>
+				</div>
+				<div class="flex items-center justify-center">
+					@button.Button(button.Props{Type: "submit"}) {
+						{ submitLabel }
+					}
+				</div>
+			</div>
+		} else if enableSubmit {
+			<div class="mt-2 flex items-center justify-center">
+				@button.Button(button.Props{Type: "submit"}) {
+					{ submitLabel }
+				}
+			</div>
+		}
+	</form>
+	if showRegister {
 		<div class="mt-2 flex items-center justify-center">
-			@button.Button(button.Props{Type: "submit"}) {
-				Yes, this is correct
+			@button.Button(button.Props{
+				Variant: button.VariantSecondary,
+				Attributes: templ.Attributes{
+					"type":      "button",
+					"hx-get":    values.EndpointModal + "/register",
+					"hx-target": "#" + values.IDModalZoneContent,
+					"hx-swap":   "innerHTML",
+				},
+			}) {
+				No, register as new vinyl
 			}
 		</div>
-	</form>
-	<div class="mt-2 flex items-center justify-center">
-		@button.Button(button.Props{
-			Variant: button.VariantSecondary,
-			Attributes: templ.Attributes{
-				"type":      "button",
-				"hx-get":    values.EndpointModal + "/register",
-				"hx-target": "#" + values.IDModalZoneContent,
-				"hx-swap":   "innerHTML",
-			},
-		}) {
-			No, register as new vinyl
-		}
-	</div>
+	}
 }

@@ -2,7 +2,8 @@ package values
 
 // Param constants for URL path parameters
 const (
-	ParamVinylID = "vinyl_id"
+	ParamVinylID   = "vinyl_id"
+	ParamReleaseID = "release_id"
 )
 
 // Query constants for URL query parameters
@@ -14,6 +15,8 @@ const (
 	QueryStyle      = "style"
 	QueryConfirm    = "confirm"
 	QuerySimilarity = "similarity"
+	QueryReleaseID  = "release_id"
+	QuerySelection  = "selection"
 	QueryUserID     = "user_id"
 	QueryUserName   = "user_name"
 )

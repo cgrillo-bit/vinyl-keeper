@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/a-h/templ"
 	"github.com/ninesl/vinyl-keeper/app/router/assets/pages"
@@ -41,12 +42,15 @@ func nonEmptyValues(values []string) []string {
 }
 
 type ScanHandlerParams struct {
-	GetEmbedding           func([]byte) (Embedding, error)
-	FindClosestVinylUnqiue func(Embedding) vinyl.VinylRecord
-	FindClosestVinyls      func(Embedding, int) []vinyl.VinylRecord
-	GetVinyl               func(vinylID int64) *vinyl.VinylRecord
-	PlayRecord             func(vinylID, userID int64) error
-	GetUserID              func(*http.Request) int64
+	GetEmbedding                 func([]byte) (Embedding, error)
+	FindClosestVinylUnqiue       func(Embedding) vinyl.VinylRecord
+	FindClosestVinyls            func(Embedding, int) []vinyl.VinylRecord
+	FindClosestReleaseCandidates func(Embedding, int, int64) []vinyl.ReleaseCandidate
+	GetVinyl                     func(vinylID int64) *vinyl.VinylRecord
+	GetReleaseCandidate          func(vinylID, releaseID int64) (*vinyl.ReleaseCandidate, error)
+	PlayRecord                   func(vinylID, userID int64) error
+	PlayRecordRelease            func(vinylID, releaseID, userID int64) error
+	GetUserID                    func(*http.Request) int64
 }
 
 type ScanResult struct {
@@ -197,18 +201,52 @@ func ScanCoverHTMLHandler(params ScanHandlerParams) http.HandlerFunc {
 		}
 
 		if r.FormValue(values.QueryConfirm) == "1" {
-			vinylIDStr := r.FormValue(values.ParamVinylID)
-			if vinylIDStr == "" {
+			selection := strings.TrimSpace(r.FormValue(values.QuerySelection))
+			if selection == "" {
 				w.WriteHeader(http.StatusBadRequest)
-				parts.ErrorMessage("Missing vinyl ID").Render(r.Context(), w)
+				parts.ErrorMessage("Missing selection").Render(r.Context(), w)
 				return
 			}
-			vinylID, err := strconv.ParseInt(vinylIDStr, 10, 64)
+			partsSelection := strings.SplitN(selection, ":", 2)
+			if len(partsSelection) != 2 {
+				w.WriteHeader(http.StatusBadRequest)
+				parts.ErrorMessage("Invalid selection").Render(r.Context(), w)
+				return
+			}
+			vinylID, err := strconv.ParseInt(strings.TrimSpace(partsSelection[0]), 10, 64)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				parts.ErrorMessage("Invalid vinyl ID").Render(r.Context(), w)
 				return
 			}
+			releaseID, err := strconv.ParseInt(strings.TrimSpace(partsSelection[1]), 10, 64)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				parts.ErrorMessage("Invalid release ID").Render(r.Context(), w)
+				return
+			}
+			if params.GetReleaseCandidate != nil && releaseID > 0 {
+				v, getErr := params.GetReleaseCandidate(vinylID, releaseID)
+				if getErr != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					parts.ErrorMessage("Failed to resolve selected release").Render(r.Context(), w)
+					return
+				}
+				if v == nil {
+					w.WriteHeader(http.StatusNotFound)
+					parts.ErrorMessage("Selected release not found").Render(r.Context(), w)
+					return
+				}
+				similarityPercent := 100.0
+				if simStr := r.FormValue(values.QuerySimilarity); simStr != "" {
+					if parsed, parseErr := strconv.ParseFloat(simStr, 64); parseErr == nil {
+						similarityPercent = parsed
+					}
+				}
+				renderAcceptedScanResult(w, r, params, routertypes.FromReleaseCandidate(*v), releaseID, similarityPercent)
+				return
+			}
+
 			if params.GetVinyl == nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				parts.ErrorMessage("Scanner confirmation is not configured").Render(r.Context(), w)
@@ -226,7 +264,7 @@ func ScanCoverHTMLHandler(params ScanHandlerParams) http.HandlerFunc {
 					similarityPercent = parsed
 				}
 			}
-			renderAcceptedScanResult(w, r, params, *v, similarityPercent)
+			renderAcceptedScanResult(w, r, params, routertypes.FromVinylRecord(*v), releaseID, similarityPercent)
 			return
 		}
 
@@ -251,40 +289,62 @@ func ScanCoverHTMLHandler(params ScanHandlerParams) http.HandlerFunc {
 			return
 		}
 
-		candidates := []vinyl.VinylRecord{}
-		if params.FindClosestVinyls != nil {
-			candidates = params.FindClosestVinyls(embedding, 4)
-		} else {
-			vinylResult := params.FindClosestVinylUnqiue(embedding)
-			if vinylResult.VinylID != 0 {
-				candidates = append(candidates, vinylResult)
+		releaseCandidates := []vinyl.ReleaseCandidate{}
+		if params.FindClosestReleaseCandidates != nil {
+			releaseCandidates = params.FindClosestReleaseCandidates(embedding, 4, params.GetUserID(r))
+		}
+		if len(releaseCandidates) == 0 {
+			vinylCandidates := []vinyl.VinylRecord{}
+			if params.FindClosestVinyls != nil {
+				vinylCandidates = params.FindClosestVinyls(embedding, 4)
+			} else {
+				vinylResult := params.FindClosestVinylUnqiue(embedding)
+				if vinylResult.VinylID != 0 {
+					vinylCandidates = append(vinylCandidates, vinylResult)
+				}
+			}
+			for _, candidate := range vinylCandidates {
+				releaseCandidates = append(releaseCandidates, vinyl.ReleaseCandidate{VinylRecord: candidate})
 			}
 		}
 
-		if len(candidates) == 0 {
+		if len(releaseCandidates) == 0 {
 			parts.ErrorMessage("No matching vinyl found").Render(r.Context(), w)
 			return
 		}
 
-		similarities := make([]float64, 0, len(candidates))
-		for _, candidate := range candidates {
-			candidateEmbedding, decodeErr := embeddingFromBlob(candidate.CoverEmbedding)
-			if decodeErr != nil {
-				parts.ErrorMessage("Failed to decode vinyl embedding").Render(r.Context(), w)
-				return
+		similarities := make([]float64, 0, len(releaseCandidates))
+		for _, candidate := range releaseCandidates {
+			sim := candidate.Similarity * 100
+			if sim == 0 {
+				candidateEmbedding, decodeErr := embeddingFromBlob(candidate.CoverEmbedding)
+				if decodeErr != nil {
+					parts.ErrorMessage("Failed to decode vinyl embedding").Render(r.Context(), w)
+					return
+				}
+				sim = cosineSimilarity(embedding, candidateEmbedding) * 100
 			}
-			similarities = append(similarities, cosineSimilarity(embedding, candidateEmbedding)*100)
+			similarities = append(similarities, sim)
 		}
 
-		pages.LowConfidenceChoiceCards(toVinylViews(candidates), similarities).Render(r.Context(), w)
+		pages.LowConfidenceChoiceCards(toReleaseCandidateViews(releaseCandidates), similarities).Render(r.Context(), w)
 	}
 }
 
-func renderAcceptedScanResult(w http.ResponseWriter, r *http.Request, params ScanHandlerParams, vinylResult vinyl.VinylRecord, similarityPercent float64) {
-	if params.PlayRecord != nil {
+func renderAcceptedScanResult(w http.ResponseWriter, r *http.Request, params ScanHandlerParams, vinylResult routertypes.Vinyl, releaseID int64, similarityPercent float64) {
+	if params.PlayRecordRelease != nil && releaseID > 0 {
 		userID := params.GetUserID(r)
 		if userID >= 0 {
-			if err := params.PlayRecord(vinylResult.VinylID, userID); err != nil {
+			if err := params.PlayRecordRelease(vinylResult.ID(), releaseID, userID); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				parts.ErrorMessage("Failed to record play: "+err.Error()).Render(r.Context(), w)
+				return
+			}
+		}
+	} else if params.PlayRecord != nil {
+		userID := params.GetUserID(r)
+		if userID >= 0 {
+			if err := params.PlayRecord(vinylResult.ID(), userID); err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				parts.ErrorMessage("Failed to record play: "+err.Error()).Render(r.Context(), w)
 				return
@@ -292,7 +352,94 @@ func renderAcceptedScanResult(w http.ResponseWriter, r *http.Request, params Sca
 		}
 	}
 	SetHXTrigger(w, values.EventVinylRegistered)
-	pages.ScanResultCard(routertypes.FromVinylRecord(vinylResult), similarityPercent).Render(r.Context(), w)
+	pages.ScanResultCard(vinylResult, similarityPercent).Render(r.Context(), w)
+}
+
+type PressingModalHandlerParams struct {
+	GetUserID         func(*http.Request) int64
+	GetVinyl          func(vinylID int64) *vinyl.VinylRecord
+	ListPressingItems func(vinylID, userID int64) ([]vinyl.ReleaseOption, error)
+}
+
+func PressingChoiceModalHandler(params PressingModalHandlerParams) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", values.ContentTypeHTML)
+
+		vinylIDStr := r.PathValue(values.ParamVinylID)
+		if vinylIDStr == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			parts.ErrorMessage("Missing vinyl ID").Render(r.Context(), w)
+			return
+		}
+		vinylID, err := strconv.ParseInt(vinylIDStr, 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			parts.ErrorMessage("Invalid vinyl ID").Render(r.Context(), w)
+			return
+		}
+
+		base := params.GetVinyl(vinylID)
+		if base == nil {
+			w.WriteHeader(http.StatusNotFound)
+			parts.ErrorMessage("Vinyl not found").Render(r.Context(), w)
+			return
+		}
+
+		items, err := params.ListPressingItems(vinylID, params.GetUserID(r))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			parts.ErrorMessage("Failed to load pressings").Render(r.Context(), w)
+			return
+		}
+		if len(items) == 0 {
+			parts.ErrorMessage("No pressings found").Render(r.Context(), w)
+			return
+		}
+
+		choices := toReleaseOptionViews(items)
+		selectedReleaseID := int64(0)
+		for i := range items {
+			if items[i].IsCurrent {
+				selectedReleaseID = items[i].ReleaseID
+				break
+			}
+		}
+		pages.PressingChoiceModal(routertypes.FromVinylRecord(*base), selectedReleaseID, choices).Render(r.Context(), w)
+	}
+}
+
+type ChangePressingHandlerParams struct {
+	GetUserID          func(*http.Request) int64
+	ChangeUserPressing func(vinylID, releaseID, userID int64) error
+	GetIndex           func() *vinyl.VinylIndex
+}
+
+func ChangePressingHandler(params ChangePressingHandlerParams) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", values.ContentTypeHTML)
+
+		vinylID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue(values.ParamVinylID)), 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			parts.ErrorMessage("Invalid vinyl ID").Render(r.Context(), w)
+			return
+		}
+		releaseID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue(values.QueryReleaseID)), 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			parts.ErrorMessage("Invalid release ID").Render(r.Context(), w)
+			return
+		}
+
+		if err := params.ChangeUserPressing(vinylID, releaseID, params.GetUserID(r)); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			parts.ErrorMessage("Failed to change pressing: "+err.Error()).Render(r.Context(), w)
+			return
+		}
+
+		SetHXTrigger(w, values.EventVinylRegistered)
+		ui.FilterPanel(values.EndpointMyVinyl+values.EndpointFilter, params.GetIndex(), "my-collection-scope", "my-collection-zone", "my-collection-filter-artist").Render(r.Context(), w)
+	}
 }
 
 func cosineSimilarity(a, b Embedding) float64 {
@@ -325,8 +472,10 @@ func embeddingFromBlob(b []byte) (Embedding, error) {
 }
 
 type RegisterHandlerParams struct {
-	RegisterVinyl   func(artist, album string) (vinyl.VinylRecord, error)
-	RegisterVinylID func(masterID int) (vinyl.VinylRecord, error)
+	RegisterVinyl       func(artist, album string) (vinyl.VinylRecord, error)
+	RegisterVinylID     func(masterID int) (vinyl.VinylRecord, error)
+	FindExistingVinyl   func(artist, album string, masterID *int64) *vinyl.VinylRecord
+	GetPrimaryReleaseID func(vinylID int64) (int64, error)
 }
 
 type RegisterResult struct {
@@ -356,6 +505,7 @@ func RegisterSubmitHandler(params RegisterHandlerParams) http.HandlerFunc {
 		} else if nameSearch {
 			vinylUnique, err = params.RegisterVinyl(artist, album)
 			if err != nil {
+				fmt.Printf("[Register] album/artist registration failed artist=%q album=%q err=%v\n", artist, album, err)
 				parts.ErrorMessage("No album found").Render(r.Context(), w)
 				return
 			}
@@ -367,8 +517,17 @@ func RegisterSubmitHandler(params RegisterHandlerParams) http.HandlerFunc {
 				return
 			}
 
+			if params.FindExistingVinyl != nil {
+				mid := int64(id)
+				if existing := params.FindExistingVinyl("", "", &mid); existing != nil {
+					renderRegisterResult(w, r, params, *existing)
+					return
+				}
+			}
+
 			vinylUnique, err = params.RegisterVinylID(id)
 			if err != nil {
+				fmt.Printf("[Register] master registration failed master_id=%d err=%v\n", id, err)
 				parts.ErrorMessage("No album found").Render(r.Context(), w)
 				return
 			}
@@ -377,9 +536,21 @@ func RegisterSubmitHandler(params RegisterHandlerParams) http.HandlerFunc {
 			return
 		}
 
-		SetHXTrigger(w, values.EventVinylRegistered)
-		parts.VinylCard(parts.NewAlbumVinylRender(routertypes.FromVinylRecord(vinylUnique))).Render(r.Context(), w)
+		renderRegisterResult(w, r, params, vinylUnique)
 	}
+}
+
+func renderRegisterResult(w http.ResponseWriter, r *http.Request, params RegisterHandlerParams, record vinyl.VinylRecord) {
+	SetHXTrigger(w, values.EventVinylRegistered)
+	view := routertypes.FromVinylRecord(record)
+	if params.GetPrimaryReleaseID != nil {
+		if releaseID, releaseErr := params.GetPrimaryReleaseID(record.VinylID); releaseErr == nil {
+			view.ReleaseIDVal = releaseID
+		} else {
+			fmt.Printf("[Register] failed to resolve primary release vinyl_id=%d err=%v\n", record.VinylID, releaseErr)
+		}
+	}
+	parts.RegisterChoiceCards([]routertypes.Vinyl{view}).Render(r.Context(), w)
 }
 
 type DeleteHandlerParams struct {
@@ -417,7 +588,8 @@ func DeleteVinylHandler(params DeleteHandlerParams) http.HandlerFunc {
 }
 
 type ServeAlbumImageHandlerParams struct {
-	GetVinyl func(vinylID int64) *vinyl.VinylRecord
+	GetVinyl        func(vinylID int64) *vinyl.VinylRecord
+	GetReleaseCover func(vinylID, releaseID int64) ([]byte, string, bool)
 }
 
 func HandleServeAlbumImage(params ServeAlbumImageHandlerParams) http.HandlerFunc {
@@ -431,6 +603,25 @@ func HandleServeAlbumImage(params ServeAlbumImageHandlerParams) http.HandlerFunc
 		vinylID, err := strconv.ParseInt(vinylIDStr, 10, 64)
 		if err != nil {
 			http.NotFound(w, r)
+			return
+		}
+
+		releaseIDStr := r.PathValue(values.ParamReleaseID)
+		if releaseIDStr != "" && params.GetReleaseCover != nil {
+			releaseID, parseErr := strconv.ParseInt(releaseIDStr, 10, 64)
+			if parseErr != nil {
+				http.NotFound(w, r)
+				return
+			}
+			cover, imageExtension, ok := params.GetReleaseCover(vinylID, releaseID)
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "image/"+imageExtension)
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			w.Header().Set("ETag", fmt.Sprintf("\"%d-%d\"", vinylID, releaseID))
+			w.Write(cover)
 			return
 		}
 
@@ -464,6 +655,22 @@ func toMyVinylViews(vinyls []vinyl.VinylWithPlayData) []routertypes.Vinyl {
 	views := make([]routertypes.Vinyl, 0, len(vinyls))
 	for _, v := range vinyls {
 		views = append(views, routertypes.FromVinylWithPlayData(v))
+	}
+	return views
+}
+
+func toReleaseCandidateViews(vinyls []vinyl.ReleaseCandidate) []routertypes.Vinyl {
+	views := make([]routertypes.Vinyl, 0, len(vinyls))
+	for _, v := range vinyls {
+		views = append(views, routertypes.FromReleaseCandidate(v))
+	}
+	return views
+}
+
+func toReleaseOptionViews(options []vinyl.ReleaseOption) []routertypes.Vinyl {
+	views := make([]routertypes.Vinyl, 0, len(options))
+	for _, option := range options {
+		views = append(views, routertypes.FromReleaseCandidate(option.ReleaseCandidate))
 	}
 	return views
 }

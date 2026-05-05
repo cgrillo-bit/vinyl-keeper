@@ -156,7 +156,7 @@ func TestScanCoverHTMLHandler_LowConfidence(t *testing.T) {
 		t.Error("Response should contain register button")
 	}
 
-	if !strings.Contains(body, "confirm") || !strings.Contains(body, "vinyl_id") {
+	if !strings.Contains(body, "confirm") || !strings.Contains(body, "selection") {
 		t.Error("Response should post confirmation payload back to scan endpoint")
 	}
 
@@ -176,17 +176,27 @@ func TestScanCoverHTMLHandler_ConfirmFlow_PassesUserIDToPlayRecord(t *testing.T)
 	}
 
 	var gotVinylID int64
+	var gotReleaseID int64
 	var gotUserID int64
 
+	mockCandidate := vinyl.ReleaseCandidate{
+		VinylRecord: mockVinyl,
+		ReleaseID:   999,
+	}
+
 	params := ScanHandlerParams{
-		GetVinyl: func(vinylID int64) *vinyl.VinylRecord {
+		GetReleaseCandidate: func(vinylID, releaseID int64) (*vinyl.ReleaseCandidate, error) {
 			if vinylID != 1 {
 				t.Fatalf("expected vinylID 1 in confirm flow, got %d", vinylID)
 			}
-			return &mockVinyl
+			if releaseID != 999 {
+				t.Fatalf("expected releaseID 999 in confirm flow, got %d", releaseID)
+			}
+			return &mockCandidate, nil
 		},
-		PlayRecord: func(vinylID, userID int64) error {
+		PlayRecordRelease: func(vinylID, releaseID, userID int64) error {
 			gotVinylID = vinylID
+			gotReleaseID = releaseID
 			gotUserID = userID
 			return nil
 		},
@@ -196,7 +206,7 @@ func TestScanCoverHTMLHandler_ConfirmFlow_PassesUserIDToPlayRecord(t *testing.T)
 	}
 
 	handler := ScanCoverHTMLHandler(params)
-	req := httptest.NewRequest(http.MethodPost, "/search/htmx?confirm=1&vinyl_id=1&similarity=88.8", nil)
+	req := httptest.NewRequest(http.MethodPost, "/search/htmx?confirm=1&selection=1:999&similarity=88.8", nil)
 	w := httptest.NewRecorder()
 
 	handler(w, req)
@@ -205,10 +215,13 @@ func TestScanCoverHTMLHandler_ConfirmFlow_PassesUserIDToPlayRecord(t *testing.T)
 		t.Fatalf("Expected status 200, got %d", w.Result().StatusCode)
 	}
 	if gotVinylID != 1 {
-		t.Fatalf("Expected PlayRecord vinylID=1, got %d", gotVinylID)
+		t.Fatalf("Expected PlayRecordRelease vinylID=1, got %d", gotVinylID)
+	}
+	if gotReleaseID != 999 {
+		t.Fatalf("Expected PlayRecordRelease releaseID=999, got %d", gotReleaseID)
 	}
 	if gotUserID != 99 {
-		t.Fatalf("Expected PlayRecord userID=99, got %d", gotUserID)
+		t.Fatalf("Expected PlayRecordRelease userID=99, got %d", gotUserID)
 	}
 }
 

@@ -87,9 +87,16 @@ func setEmbeddingRoutes(r *router.Router, keeper *keeper) {
 				copy(mainEmb, emb)
 				return keeper.FindClosestVinyls(mainEmb, n)
 			},
-			GetVinyl:   keeper.GetVinyl,
-			PlayRecord: keeper.PlayRecord,
-			GetUserID:  router.GetUserID,
+			FindClosestReleaseCandidates: func(emb router.Embedding, n int, userID int64) []vinyl.ReleaseCandidate {
+				mainEmb := make(Embedding, len(emb))
+				copy(mainEmb, emb)
+				return keeper.FindClosestReleaseCandidates(mainEmb, n, userID)
+			},
+			GetVinyl:            keeper.GetVinyl,
+			GetReleaseCandidate: keeper.GetReleaseCandidate,
+			PlayRecord:          keeper.PlayRecord,
+			PlayRecordRelease:   keeper.PlayRecordRelease,
+			GetUserID:           router.GetUserID,
 		}))
 
 }
@@ -160,6 +167,14 @@ func main() {
 		router.ModalMyCollectionHandler(keeper.GetVinylIndex))
 
 	r.Route(http.MethodGet,
+		values.EndpointModal+"/my-collection/"+values.PageParam(values.ParamVinylID)+values.EndpointPressings,
+		router.PressingChoiceModalHandler(router.PressingModalHandlerParams{
+			GetUserID:         router.GetUserID,
+			GetVinyl:          keeper.GetVinyl,
+			ListPressingItems: keeper.ListPressingOptions,
+		}))
+
+	r.Route(http.MethodGet,
 		values.EndpointModal+"/register",
 		router.RenderHandler(ui.VinylRegisterForm()),
 	)
@@ -219,6 +234,14 @@ func main() {
 		values.EndpointMyVinyl+values.EndpointFilter,
 		router.MyVinylFilterHandler(keeper.MyVinyl, keeper.GetVinylIndex, router.GetUserID))
 
+	r.Route(http.MethodPost,
+		values.EndpointMyVinyl+values.EndpointRelease+values.EndpointChange,
+		router.ChangePressingHandler(router.ChangePressingHandlerParams{
+			GetUserID:          router.GetUserID,
+			ChangeUserPressing: keeper.ChangeUserPressing,
+			GetIndex:           keeper.GetVinylIndex,
+		}))
+
 	log.Println("[Init] Registering embedding routes")
 	setEmbeddingRoutes(r, keeper)
 
@@ -227,6 +250,12 @@ func main() {
 		values.EndpointRegister+values.EndpointSubmit,
 		router.RegisterSubmitHandler(router.RegisterHandlerParams{
 			RegisterVinyl: func(artist, album string) (vinyl.VinylRecord, error) {
+				if masterID, resolveErr := FindDiscogsMasterID(album, artist); resolveErr == nil && masterID > 0 {
+					mid := int64(masterID)
+					if existing := keeper.FindExistingVinyl("", "", &mid); existing != nil {
+						return *existing, nil
+					}
+				}
 				params, err := RegisterUniqueVinylAlbumArtist(album, artist)
 				if err != nil {
 					return vinyl.VinylRecord{}, err
@@ -234,12 +263,18 @@ func main() {
 				return keeper.RegisterVinylUnique(params)
 			},
 			RegisterVinylID: func(masterID int) (vinyl.VinylRecord, error) {
+				mid := int64(masterID)
+				if existing := keeper.FindExistingVinyl("", "", &mid); existing != nil {
+					return *existing, nil
+				}
 				params, err := RegisterUniqueVinylMasterID(masterID)
 				if err != nil {
 					return vinyl.VinylRecord{}, err
 				}
 				return keeper.RegisterVinylUnique(params)
 			},
+			FindExistingVinyl:   keeper.FindExistingVinyl,
+			GetPrimaryReleaseID: keeper.GetPrimaryReleaseID,
 		}))
 
 	// Delete vinyl (HTMX endpoint) — triggers vinyl-registered on success
@@ -255,7 +290,15 @@ func main() {
 	r.Route(http.MethodGet,
 		values.EndpointCover+"/"+values.PageParam(values.ParamVinylID),
 		router.HandleServeAlbumImage(router.ServeAlbumImageHandlerParams{
-			GetVinyl: keeper.GetVinyl,
+			GetVinyl:        keeper.GetVinyl,
+			GetReleaseCover: keeper.GetReleaseCover,
+		}))
+
+	r.Route(http.MethodGet,
+		values.EndpointCover+"/"+values.PageParam(values.ParamVinylID)+"/"+values.PageParam(values.ParamReleaseID),
+		router.HandleServeAlbumImage(router.ServeAlbumImageHandlerParams{
+			GetVinyl:        keeper.GetVinyl,
+			GetReleaseCover: keeper.GetReleaseCover,
 		}))
 
 	// Get the router handler and wrap with auth middleware

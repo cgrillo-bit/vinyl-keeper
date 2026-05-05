@@ -41,3 +41,15 @@
 .album-details[open] .overlay-spoiler {
   display: flex;
 }
+
+[data-tui-dialog-content]:has(#modal-zone-content > .pressing-choice-modal) {
+  overflow: hidden;
+}
+
+[data-tui-dialog-content]:has(#modal-zone-content > .pressing-choice-modal) [data-tui-dialog-panel] {
+  overflow: hidden;
+}
+
+#pressing-scroll-list {
+  overflow-anchor: none;
+}

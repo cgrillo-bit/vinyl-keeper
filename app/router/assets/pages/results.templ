@@ -14,3 +14,9 @@ templ ScanResultCard(v types.Vinyl, similarity float64) {
 templ LowConfidenceChoiceCards(vinyls []types.Vinyl, similarities []float64) {
 	@parts.LowConfidenceChoiceCards(vinyls, similarities)
 }
+
+templ PressingChoiceModal(v types.Vinyl, selectedReleaseID int64, options []types.Vinyl) {
+	<div class="pressing-choice-modal">
+		@parts.PressingChoiceCards(v, selectedReleaseID, options)
+	</div>
+}
