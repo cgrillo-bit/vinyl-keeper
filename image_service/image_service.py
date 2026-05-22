@@ -113,7 +113,10 @@ async def embed(request: Request) -> Response:
 
     try:
         tensor = preprocess(raw)
-        result = session.run(["embedding"], {"image": tensor})
+        # ideally here we want to fetch input and output names from the ONNX session
+        input_name = session.get_inputs()[0].name
+        output_name = session.get_outputs()[0].name
+        result = session.run([output_name], {input_name: tensor})
         embedding = result[0][0]
     except Exception:
         logger.exception("/embed failed")

@@ -72,29 +72,31 @@ templ ScannerButton(signedIn bool) {
 	{{
 		dProps := dialog.TriggerProps{
 			ID: "scan-btn",
+			For: "modal-zone-dialog",
 		}
-		btnProps := button.Props{ID: "scan-btn"}
+		btnProps := button.Props{
+			ID: "scan-btn",
+			Attributes: templ.Attributes{
+				"data-signed-in": fmt.Sprintf("%t", signedIn),
+			},
+		}
 		if signedIn {
 			btnProps.Variant = button.VariantSecondary
-		} else {
-			btnProps.Disabled = true
-		}
-		if signedIn {
-			dProps.For = "modal-zone-dialog"
 			dProps.Attributes = templ.Attributes{
 				"hx-target": "#" + values.IDModalZoneContent,
 				"hx-swap":   "innerHTML",
 				"onclick":   "handleScanClick(event)",
 			}
-		}
-	}}
-	if signedIn {
-		@dialog.Trigger(dProps) {
-			@button.Button(btnProps) {
-				@icon.ScanSearch(icon.Props{Class: "size-8 drop-shadow-sm"})
+		} else {
+			btnProps.Variant = button.VariantOutline
+			dProps.Attributes = templ.Attributes{
+				"hx-get":    values.EndpointModal + values.EndpointSignInModal,
+				"hx-target": "#" + values.IDModalZoneContent,
+				"hx-swap":   "innerHTML",
 			}
 		}
-	} else {
+	}}
+	@dialog.Trigger(dProps) {
 		@button.Button(btnProps) {
 			@icon.ScanSearch(icon.Props{Class: "size-8 drop-shadow-sm"})
 		}
@@ -200,7 +202,12 @@ templ ScannerScript() {
           errorMsg += 'Error: ' + err.message;
         }
 
-        if (modalZoneContent) modalZoneContent.innerHTML = '<p class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">' + errorMsg + '</p>';
+        if (modalZoneContent) {
+          modalZoneContent.innerHTML = '<p class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">' + errorMsg + '</p>';
+          if (window.tui && window.tui.dialog) {
+            window.tui.dialog.open("modal-zone-dialog");
+          }
+        }
         syncScanButtonState();
       }
     }

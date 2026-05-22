@@ -240,7 +240,9 @@ print-dev-urls:
 	echo "Phone/LAN: $$scheme://$(if $(LAN_IP_IN_USE),$(LAN_IP_IN_USE),<no LAN IP detected>):$(APP_PORT)"
 
 dev-down:
-	podman-compose -f $(COMPOSE_LOCAL) down --remove-orphans
+	@if command -v podman-compose >/dev/null 2>&1; then \
+		podman-compose -f $(COMPOSE_LOCAL) down --remove-orphans 2>/dev/null || true; \
+	fi
 
 # Run one-shot DB migration using local image-service for embeddings
 migrate-main-release:
