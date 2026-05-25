@@ -1,0 +1,13 @@
+package parts
+
+templ CloseDialogResponse(targetContentID string, dialogID string) {
+	<div id={ targetContentID } hx-swap-oob="innerHTML"></div>
+	<script data-dialog-close-id={ dialogID }>
+		if (window.tui && window.tui.dialog) {
+			const id = document.currentScript?.dataset?.dialogCloseId;
+			if (id) {
+				window.tui.dialog.close(id);
+			}
+		}
+	</script>
+}

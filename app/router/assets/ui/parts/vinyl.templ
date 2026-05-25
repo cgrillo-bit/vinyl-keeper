@@ -258,7 +258,7 @@ templ MyAlbumSpoilerOverlay(d VinylDisplay) {
 		if d.Plays > 0 || d.AddedDate != "" || d.LastDate != "" {
 			<div class="absolute left-0 right-0 top-0 z-20 bg-black/55 px-2 py-2 text-xs text-white backdrop-blur-sm">
 				<div class="mb-1.5 flex items-center gap-1.5">
-					@dialog.Trigger(dialog.TriggerProps{For: "modal-zone-dialog", Attributes: templ.Attributes{
+					@dialog.Trigger(dialog.TriggerProps{For: values.IDModalZoneDialog, Attributes: templ.Attributes{
 						"hx-get":    fmt.Sprintf(values.EndpointModal+values.EndpointMyCollection+"/%d"+values.EndpointPressings, d.ID),
 						"hx-target": "#" + values.IDModalZoneContent,
 						"hx-swap":   "innerHTML",

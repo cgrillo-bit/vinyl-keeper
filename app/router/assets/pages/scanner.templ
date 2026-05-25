@@ -71,14 +71,11 @@ templ ScannerButtonShell(signedIn bool, oob bool) {
 templ ScannerButton(signedIn bool) {
 	{{
 		dProps := dialog.TriggerProps{
-			ID: "scan-btn",
-			For: "modal-zone-dialog",
+			ID:  "scan-btn",
+			For: values.IDModalZoneDialog,
 		}
 		btnProps := button.Props{
 			ID: "scan-btn",
-			Attributes: templ.Attributes{
-				"data-signed-in": fmt.Sprintf("%t", signedIn),
-			},
 		}
 		if signedIn {
 			btnProps.Variant = button.VariantSecondary
@@ -103,6 +100,11 @@ templ ScannerButton(signedIn bool) {
 	}
 }
 
+const noCameraHtml = `<p class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">Camera access is not supported on this browser. Please use a modern browser (Chrome, Safari, Firefox).</p>`
+const loadingMsg = `<p class="text-sm text-muted-foreground">Scanning vinyl cover...</p>`
+const cameraErrorMsgPrefix = `<p class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">`
+const cameraErrorMsgSuffix = `</p>`
+
 templ ScannerScript() {
 	<script>
     const video = document.getElementById('camera');
@@ -114,8 +116,6 @@ templ ScannerScript() {
     const cameraToggleBtn = document.getElementById('camera-toggle-btn');
     const cameraIconOn = document.getElementById('camera-toggle-icon-on');
     const cameraIconOff = document.getElementById('camera-toggle-icon-off');
-    const noCameraHtml = '<p class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">Camera access is not supported on this browser. Please use a modern browser (Chrome, Safari, Firefox).</p>';
-    const loadingMsg = '<p class="text-sm text-muted-foreground">Scanning vinyl cover...</p>';
     let cameraEnabled = true;
 
     function syncScanButtonState() {
@@ -133,7 +133,7 @@ templ ScannerScript() {
     // Check if camera API is available
     function checkCameraSupport() {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        if (modalZoneContent) modalZoneContent.innerHTML = noCameraHtml;
+        if (modalZoneContent) modalZoneContent.innerHTML = {{ noCameraHtml }}; 
         return false;
       }
       return true;
@@ -203,9 +203,9 @@ templ ScannerScript() {
         }
 
         if (modalZoneContent) {
-          modalZoneContent.innerHTML = '<p class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">' + errorMsg + '</p>';
+          modalZoneContent.innerHTML = {{ cameraErrorMsgPrefix }} + errorMsg + {{ cameraErrorMsgSuffix }};
           if (window.tui && window.tui.dialog) {
-            window.tui.dialog.open("modal-zone-dialog");
+			window.tui.dialog.open("modal-zone-dialog");
           }
         }
         syncScanButtonState();
@@ -299,7 +299,7 @@ templ ScannerScript() {
       
 				scanBtn.disabled = true;
 				scanBtn.classList.add('animate-pulse');
-				if (modalZoneContent) modalZoneContent.innerHTML = loadingMsg;
+				if (modalZoneContent) modalZoneContent.innerHTML = {{ loadingMsg }};
       
       try {
         const blob = await captureFrame();
@@ -332,7 +332,7 @@ templ ScannerScript() {
 				}
 			} catch (err) {
 				console.error("Scan error:", err);
-				if (modalZoneContent) modalZoneContent.innerHTML = "<p class=\"rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive\">Error: " + err.message + "</p>";
+				if (modalZoneContent) modalZoneContent.innerHTML = {{ cameraErrorMsgPrefix }} + 'Error: ' + err.message + {{ cameraErrorMsgSuffix }};
 			} finally {
 				scanBtn.disabled = false;
 				scanBtn.classList.remove('animate-pulse');

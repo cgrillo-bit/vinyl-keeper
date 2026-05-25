@@ -45,7 +45,7 @@ templ Nav(signedInUserName string, signedIn bool) {
 			@SignInButtonZone(signedInUserName)
 		</div>
 	</nav>
-	@dialog.Dialog(dialog.Props{ID: "modal-zone-dialog"}) {
+	@dialog.Dialog(dialog.Props{ID: values.IDModalZoneDialog}) {
 		@dialog.Content(dialog.ContentProps{Class: "max-h-[85vh] overflow-auto"}) {
 			<div
 				id={ values.IDModalZoneContent }
@@ -76,7 +76,7 @@ templ SignInButtonZone(userName string) {
 		hx-trigger={ fmt.Sprintf("%s from:body, %s from:body", values.EventUserSignedIn, values.EventUserSignedOut) }
 		hx-swap="outerHTML"
 	>
-		@dialog.Trigger(dialog.TriggerProps{For: "modal-zone-dialog", Attributes: templ.Attributes{
+		@dialog.Trigger(dialog.TriggerProps{For: values.IDModalZoneDialog, Attributes: templ.Attributes{
 			"hx-get":    values.EndpointModal + values.EndpointSignInModal,
 			"hx-target": "#" + values.IDModalZoneContent,
 			"hx-swap":   "innerHTML",
@@ -122,7 +122,7 @@ templ NavAuthButtons(signedIn bool) {
 			}
 		}
 		if signedIn {
-			@dialog.Trigger(dialog.TriggerProps{For: "modal-zone-dialog", Attributes: templ.Attributes{
+			@dialog.Trigger(dialog.TriggerProps{For: values.IDModalZoneDialog, Attributes: templ.Attributes{
 				"hx-get":    values.EndpointModal + values.EndpointRegister,
 				"hx-target": "#" + values.IDModalZoneContent,
 				"hx-swap":   "innerHTML",

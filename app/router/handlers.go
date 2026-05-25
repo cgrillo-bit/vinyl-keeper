@@ -434,15 +434,7 @@ func ChangePressingHandler(params ChangePressingHandlerParams) http.HandlerFunc 
 		}
 
 		SetHXTrigger(w, values.EventVinylRegistered)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`
-			<div id="modal-zone-content" hx-swap-oob="innerHTML"></div>
-			<script>
-				if (window.tui && window.tui.dialog) {
-					window.tui.dialog.close("modal-zone-dialog");
-				}
-			</script>
-		`))
+		parts.CloseDialogResponse(values.IDModalZoneContent, values.IDModalZoneDialog).Render(r.Context(), w)
 	}
 }
 
